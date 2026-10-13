@@ -1,0 +1,779 @@
+<!-- 9th_Design v5.25 (reactivación PMREM en iOS) -->
+<html style="background-color:#040507 !important;color-scheme:dark !important;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" 
+        content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#040507" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#040507" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>9th_Design AR 5.23</title>
+
+  <style>
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      margin: 0;
+      padding: 0;
+      background-color: #040507 !important;
+      color-scheme: dark !important;
+      overflow: hidden;
+      position: fixed;
+      inset: 0;
+    }
+  </style>
+
+  <script src="contents.js"></script>
+  <script crossorigin="anonymous" src="external/runtime/runtime.js"></script>
+  <script src="external/xr/xr.js" 
+        async crossorigin="anonymous" data-preload-chunks="slam"></script>
+<script src="external/landing-page.js" 
+        crossorigin="anonymous"></script>
+</head>
+<body style="background-color:#040507;color-scheme:dark;">
+
+  <!-- ========================================================================= -->
+  <!-- 1. CUADRO DEBUG Y NOMBRES DE VERSIÓN                                      -->
+  <!-- ========================================================================= -->
+  <div id="debugLog" onclick="this.classList.toggle('minimized')"
+    style="position:fixed;top:10px;right:10px;z-index:1000000;
+           background:rgba(0,0,0,0.9);color:#0f0;font-family:monospace;
+           font-size:12px;padding:8px;border-radius:4px;cursor:pointer;
+           line-height:1.3;border:1px solid #0f0;display:none;pointer-events:auto;">
+    <div id="debugTitle">FPS: --</div>
+    <div id="debugContent">
+      ar-world: v5.24<br>
+      bundle: v5.24<br>
+      <span id="envVerdictSpan" style="color:#0f0;">Entorno: ESPERANDO MESA...</span><br>
+      <span id="telemetrySpan" style="color:#0f0;">P98: -- (/255) | Lum: -- (/255) | Cálido: --%</span><br>
+      <span id="benchmarkSpan" style="color:#0f0;">Pre: --sec - Post: --sec</span><br>
+      <span id="lightsCountSpan" style="color:#0f0;">Luces: 1</span><br>
+      <span id="latencySpan" style="color:#0f0;">Latencia: -- ms</span>
+    </div>
+  </div>
+  <style>
+    /* Forzado de Modo Negro Absoluto a nivel de motor de render */
+    html, body {
+      background-color: #040507 !important;
+      color-scheme: dark !important;
+    }
+
+    #debugLog.minimized { 
+      height: 15px; 
+      width: 60px; 
+      overflow: hidden; 
+      border-color: #555; 
+    }
+    #debugLog.minimized #debugContent { 
+      display: none; 
+    }
+  </style>
+
+  <!-- Bloqueador visual para posición vertical -->
+  <div id="orientationBlocker">
+    <svg viewBox="0 0 24 24" width="48" height="48" fill="none" 
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" 
+         stroke-linejoin="round" style="margin-bottom:16px;">
+      <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+      <line x1="12" y1="18" x2="12.01" y2="18"></line>
+      <path d="M17 6h2a2 2 0 0 1 2 2v2"></path>
+      <path d="M7 6H5a2 2 0 0 0-2 2v2"></path>
+    </svg>
+    <div style="font-size:18px; font-weight:bold; margin-bottom:8px;">
+      Gira tu dispositivo
+    </div>
+    <div style="font-size:14px; opacity:0.8;">
+      Por favor, coloca el teléfono en posición vertical para continuar la experiencia AR.
+    </div>
+  </div>
+
+  <!-- Bloqueo táctil pre-Listo -->
+  <div id="touchBlocker" 
+       style="position:fixed;inset:0;width:100vw;height:100vh;
+              z-index:999990;pointer-events:none;display:none;background:transparent;"></div>
+
+  <!-- Disparador secreto permanente -->
+  <div id="secretDebugTrigger" 
+       style="position:fixed;top:0;right:0;width:200px;height:200px;
+              z-index:999995;pointer-events:auto;background:transparent;
+              display:block;touch-action:manipulation;"></div>
+
+  <!-- Prompt central: Apunta hacia la mesa -->
+  <div id="readyPromptContainer" 
+       style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+              z-index:999999;display:flex;flex-direction:column;align-items:center;
+              pointer-events:none;opacity:0;transition:opacity 0.5s ease;">
+    <div style="background:rgba(0,0,0,0.75);color:white;font-family:sans-serif;
+                font-size:16px;font-weight:bold;padding:10px 22px;border-radius:22px;
+                border:1px solid rgba(255,255,255,0.4);margin-bottom:14px;
+                text-align:center;white-space:nowrap;">
+      Apunta hacia la mesa
+    </div>
+    <button id="readyBtn" 
+            style="pointer-events:auto !important;background:#00e5ff;color:#000;
+                   border:none;font-family:sans-serif;font-size:16px;font-weight:bold;
+                   padding:14px 40px;border-radius:28px;
+                   box-shadow:0 4px 20px rgba(0,229,255,0.7);cursor:pointer;
+                   letter-spacing:0.5px;">
+      Listo
+    </button>
+  </div>
+
+  <!-- Watchdog de Cámara (Fase 1: Aviso centrado, z-index 999 calibrado) -->
+  <div id="cameraSyncBanner" 
+       style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+              background:rgba(0,0,0,0.85);color:#00e5ff;font-family:sans-serif;
+              font-size:15px;font-weight:bold;padding:12px 26px;border-radius:24px;
+              border:1px solid rgba(0,229,255,0.5);box-shadow:0 4px 20px rgba(0,0,0,0.7);
+              z-index:1;display:none;pointer-events:none;letter-spacing:0.4px;
+              white-space:nowrap;transition:opacity 0.3s ease;">
+    Sincronizando sensor de cámara...
+  </div>
+
+  <!-- Watchdog de Cámara (Fase 2: Modal de recuperación a los 8.0s) -->
+  <div id="cameraErrorModal" 
+       style="position:fixed;inset:0;background:rgba(4,5,7,0.96);z-index:1000010;
+              display:none;flex-direction:column;align-items:center;
+              justify-content:center;padding:28px;text-align:center;color:white;
+              font-family:sans-serif;">
+    <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#00e5ff" 
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
+         style="margin-bottom:18px;">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+      <line x1="1" y1="1" x2="23" y2="23"></line>
+    </svg>
+    <div style="font-size:19px;font-weight:bold;margin-bottom:12px;letter-spacing:0.3px;">
+      Sensor no disponible
+    </div>
+    <div style="font-size:14px;opacity:0.85;line-height:1.55;margin-bottom:26px;max-width:310px;">
+      No se pudo sincronizar la cámara. Pulsa Reintentar o reinicia el navegador si el problema persiste.
+    </div>
+    <button id="retryCameraBtn" 
+            style="background:#00e5ff;color:#000;border:none;font-family:sans-serif;
+                   font-weight:bold;font-size:15px;padding:13px 36px;border-radius:26px;
+                   box-shadow:0 4px 16px rgba(0,229,255,0.6);cursor:pointer;
+                   letter-spacing:0.4px;outline:none;">
+      Reintentar
+    </button>
+  </div>
+
+  <!-- Círculo de Carga AR estilo Prime Video -->
+  <div id="primeSpinner">
+    <div class="prime-spinner-outer"></div>
+    <div class="prime-spinner-inner"></div>
+  </div>
+
+  <button id="envToggle"
+    style="position:fixed;bottom:20px;left:20px;z-index:1000000;padding:10px 14px;
+           border-radius:10px;border:1px solid white;background:rgba(0,0,0,0.7);
+           color:white;font-size:13px;pointer-events:auto !important;display:none;">
+    Env: CAM
+  </button>
+
+  <button id="debugToggle"
+    style="position:fixed;bottom:20px;left:115px;z-index:1000000;padding:10px 14px;
+           border-radius:10px;border:1px solid white;background:rgba(0,0,0,0.7);
+           color:white;font-size:13px;pointer-events:auto !important;display:none;">
+    Debug: OFF
+  </button>
+
+  <button id="specToggle"
+    style="position:fixed;bottom:20px;left:215px;z-index:1000000;padding:10px 14px;
+           border-radius:10px;border:1px solid white;background:rgba(0,0,0,0.7);
+           color:white;font-size:13px;pointer-events:auto !important;display:none;">
+    Spec: BOTH
+  </button>
+
+  <!-- ========================================================================= -->
+  <!-- UI CLEAN: CARRUSEL AR, CAPTURA DE FOTOS LIMPIA Y VISOR MULTI-SELECT       -->
+  <!-- ========================================================================= -->
+
+  <!-- Flechas laterales de cambio de plato -->
+  <button id="prevDishBtn" class="ar-nav-arrow" style="left:12px;">&#8249;</button>
+  <button id="nextDishBtn" class="ar-nav-arrow" style="right:12px;">&#8250;</button>
+
+  <!-- Icono flotante indicador de interacción táctil en AR -->
+  <div class="gesture-hint-overlay" id="arGestureHint">
+    <svg viewBox="0 0 48 48" fill="none" class="gesture-hint-icon">
+      <path d="M19 16V9a3 3 0 0 1 6 0v12" stroke="#000000" stroke-width="4.5" 
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M25 19a3 3 0 0 1 6 0v2" stroke="#000000" stroke-width="4.5" 
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M31 20a3 3 0 0 1 6 0v4c0 7-5 13-12 13s-11-5-11-10v-5a3 3 0 0 1 6 0v-2" 
+            stroke="#000000" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 28a16 16 0 0 1 24 0" stroke="#000000" stroke-width="3.8" stroke-linecap="round"/>
+      
+      <path d="M19 16V9a3 3 0 0 1 6 0v12" stroke="#FFFFFF" stroke-width="2.5" 
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M25 19a3 3 0 0 1 6 0v2" stroke="#FFFFFF" stroke-width="2.5" 
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M31 20a3 3 0 0 1 6 0v4c0 7-5 13-12 13s-11-5-11-10v-5a3 3 0 0 1 6 0v-2" 
+            stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 28a16 16 0 0 1 24 0" stroke="#00e5ff" stroke-width="2" 
+            stroke-linecap="round" stroke-dasharray="2 3" opacity="0.85"/>
+    </svg>
+  </div>
+
+  <!-- Contenedor inferior de captura limpia y botón Info -->
+  <div id="captureContainer" class="ar-clean-ui" 
+       style="display:none;opacity:0;pointer-events:none;transition:opacity 0.35s ease;">
+    <!-- Miniatura de Galería -->
+    <div id="galleryThumbnailBtn" style="display:none;">
+      <img id="galleryThumbImg" src="" />
+    </div>
+
+    <!-- Obturador Central de Foto -->
+    <button id="shutterBtn">
+      <div id="shutterInner"></div>
+    </button>
+
+    <!-- Botón Info ("i") reducido un 25% = 38px -->
+    <button id="infoDishBtn">
+      <span>i</span>
+    </button>
+  </div>
+
+  <!-- Card gastronómica anclada al extremo inferior en AR -->
+  <div id="arCardModal" class="ar-card-docked" style="display:none;">
+    <div class="ar-card-glass">
+      <div class="ar-card-header">
+        <span id="arCardNumber" class="ar-card-num">01</span>
+        <span id="arCardTitle" class="ar-card-name">Ensalada César</span>
+        <button id="closeArCardBtn" class="ar-card-close">&#10005;</button>
+      </div>
+      <div class="ar-card-body">
+        <p id="arCardDesc" class="ar-card-text"></p>
+      </div>
+      <div id="arCardPrice" class="ar-card-price">18€</div>
+    </div>
+  </div>
+
+  <!-- Destello fotográfico y animación de fotograma viajero -->
+  <div id="captureFlash"></div>
+  <div id="freezeTravelCard"></div>
+
+  <!-- Visor con Tira de Miniaturas y Selector Múltiple -->
+  <div id="mediaViewerModal" style="display:none;">
+    <div class="media-viewer-header">
+      <button id="closeViewerBtn" class="viewer-icon-btn">&#10005;</button>
+      <span id="mediaCounterTitle" 
+            style="color:white;font-weight:bold;font-family:sans-serif;font-size:15px;">
+        Foto 1 / 1
+      </span>
+      <button id="deleteCurrentMediaBtn" class="viewer-icon-btn">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="media-viewer-content">
+      <button id="viewerPrevBtn" class="viewer-nav-btn">&#8249;</button>
+      <div id="viewerMediaContainer"></div>
+      <button id="viewerNextBtn" class="viewer-nav-btn">&#8250;</button>
+    </div>
+
+    <!-- Tira horizontal inferior de miniaturas con Checkbox -->
+    <div id="thumbnailStripWrapper">
+      <div id="thumbnailStripContainer"></div>
+    </div>
+
+    <div class="media-viewer-footer">
+      <button id="shareMediaBtn" class="viewer-action-btn primary">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="margin-right:8px;">
+          <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92c0-1.61-1.31-2.92-2.92-2.92z"/>
+        </svg>
+        <span id="shareBtnLabel">Compartir foto</span>
+      </button>
+    </div>
+  </div>
+
+  <style>
+    /* Bloqueador visual de orientación vertical */
+    #orientationBlocker {
+      display: none;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #040507;
+      z-index: 1000005;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+      pointer-events: auto;
+    }
+
+    @media screen and (orientation: landscape) {
+      #orientationBlocker {
+        display: flex;
+      }
+    }
+
+    /* Spinner AR estilo Prime Video */
+    #primeSpinner {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 58px;
+      height: 58px;
+      z-index: 999995;
+      pointer-events: none;
+      display: none;
+      opacity: 0;
+    }
+    .prime-spinner-outer {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2.6px solid transparent;
+      border-top-color: #00e5ff;
+      border-right-color: #00e5ff;
+      animation: primeSpin 0.9s linear infinite;
+    }
+    .prime-spinner-inner {
+      position: absolute;
+      inset: 6px;
+      border-radius: 50%;
+      border: 2.0px solid transparent;
+      border-top-color: rgba(255, 255, 255, 0.85);
+      border-left-color: rgba(255, 255, 255, 0.4);
+      animation: primeSpinReverse 1.3s linear infinite;
+    }
+    @keyframes primeSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes primeSpinReverse {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(-360deg); }
+    }
+
+    /* Estilos del Carrusel y Navegación */
+    .ar-nav-arrow {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: white;
+      font-family: sans-serif;
+      font-size: 23px;
+      line-height: 1;
+      display: none;
+      opacity: 0;
+      pointer-events: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999980;
+      backdrop-filter: blur(4px);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+      transition: background 0.2s, transform 0.1s, opacity 0.35s ease;
+    }
+    .ar-nav-arrow:active { 
+      background: rgba(255, 255, 255, 0.45); 
+      transform: translateY(-50%) scale(0.92); 
+    }
+    .ar-nav-arrow:disabled { 
+      opacity: 0.3; 
+      pointer-events: none !important; 
+      cursor: not-allowed; 
+    }
+    .ar-nav-arrow.disabled { 
+      opacity: 0.3; 
+      pointer-events: none !important; 
+    }
+
+    /* Icono flotante en AR */
+    .gesture-hint-overlay {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 999985;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    .gesture-hint-overlay.visible {
+      opacity: 1;
+    }
+    .gesture-hint-overlay:not(.visible) .gesture-hint-icon {
+      animation-play-state: paused;
+    }
+    .gesture-hint-overlay.visible .gesture-hint-icon {
+      animation-play-state: running;
+    }
+    .gesture-hint-icon {
+      width: 42px;
+      height: 42px;
+      animation: gestureSweep 2.2s ease-in-out infinite;
+    }
+    @keyframes gestureSweep {
+      0% { transform: scale(0.92) translateX(-19px) rotate(-7deg); opacity: 0.85; }
+      40% { transform: scale(1.0) translateX(0px) rotate(0deg); opacity: 1; }
+      70% { transform: scale(0.98) translateX(19px) rotate(7deg); opacity: 0.95; }
+      100% { transform: scale(0.92) translateX(-19px) rotate(-7deg); opacity: 0.85; }
+    }
+
+    #captureContainer {
+      position: fixed;
+      bottom: 28px;
+      left: 0;
+      width: 100vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 999980;
+      pointer-events: none;
+    }
+
+    #galleryThumbnailBtn {
+      position: absolute;
+      left: 28px;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      border: 2px solid white;
+      background: rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto !important;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+      transition: transform 0.15s ease, opacity 0.3s ease;
+    }
+    #galleryThumbnailBtn:active { transform: scale(0.92); }
+    #galleryThumbImg { width: 100%; height: 100%; object-fit: cover; }
+
+    #shutterBtn {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background: transparent;
+      border: 3.5px solid white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto !important;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+      transition: transform 0.1s;
+    }
+    #shutterBtn:active { transform: scale(0.92); }
+
+    #shutterInner {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: white;
+      transition: transform 0.1s ease;
+    }
+    #shutterBtn:active #shutterInner { transform: scale(0.90); }
+
+    #infoDishBtn {
+      position: absolute;
+      right: 28px;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 2px solid white;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      color: white;
+      font-family: sans-serif;
+      font-size: 18px;
+      font-style: italic;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto !important;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+      transition: transform 0.15s ease, opacity 0.3s ease;
+    }
+    #infoDishBtn:active { transform: scale(0.92); }
+
+    .ar-card-docked {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      width: 100vw;
+      z-index: 1000000;
+      pointer-events: auto;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    .ar-card-docked.open {
+      transform: translateY(0);
+    }
+    .ar-card-glass {
+      position: relative;
+      background: #0a0d12;
+      border-top: 1px solid rgba(255, 255, 255, 0.20);
+      border-radius: 20px 20px 0 0;
+      padding: 18px 22px 24px 24px;
+      box-shadow: none;
+    }
+    .ar-card-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .ar-card-num {
+      font-size: 13px;
+      color: rgba(255,255,255,0.55);
+      margin-right: 12px;
+      font-family: sans-serif;
+    }
+    .ar-card-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #FFFFFF;
+      flex: 1;
+      font-family: sans-serif;
+    }
+    .ar-card-close {
+      background: rgba(255,255,255,0.18);
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      outline: none;
+    }
+    .ar-card-body {
+      max-height: 26vh;
+      overflow-y: auto;
+      padding-right: 8px;
+      margin-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .ar-card-body::-webkit-scrollbar { display: none; }
+    .ar-card-text {
+      font-size: 14px;
+      line-height: 1.45;
+      color: rgba(255,255,255,0.85);
+      font-family: sans-serif;
+      margin: 0;
+    }
+    .ar-card-price {
+      font-size: 24px;
+      font-weight: 300;
+      color: #00e5ff;
+      text-align: right;
+      font-family: sans-serif;
+    }
+
+    #captureFlash {
+      position: fixed;
+      inset: 0;
+      background: white;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 999998;
+      transition: opacity 0.08s ease-out;
+    }
+
+    #freezeTravelCard {
+      position: fixed;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 999997;
+    }
+
+    #mediaViewerModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.95);
+      backdrop-filter: blur(12px);
+      z-index: 1000002;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: auto;
+    }
+    .media-viewer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px 8px 20px;
+    }
+    .viewer-icon-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      font-size: 18px;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    .media-viewer-content {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #viewerMediaContainer {
+      width: 88vw;
+      height: 54vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #viewerMediaContainer img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+    }
+    .viewer-nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.25);
+      border: none;
+      color: white;
+      font-size: 32px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    #viewerPrevBtn { left: 12px; }
+    #viewerNextBtn { right: 12px; }
+
+    #thumbnailStripWrapper {
+      width: 100vw;
+      overflow-x: auto;
+      padding: 8px 16px;
+      box-sizing: border-box;
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      justify-content: flex-start;
+    }
+    #thumbnailStripContainer {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .strip-thumb-card {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid transparent;
+      flex-shrink: 0;
+      cursor: pointer;
+      background: #222;
+      -webkit-tap-highlight-color: transparent;
+      transition: border-color 0.2s, transform 0.1s;
+    }
+    .strip-thumb-card.active { border-color: #00e5ff; transform: scale(1.05); }
+    .strip-thumb-img { width: 100%; height: 100%; object-fit: cover; }
+    .strip-thumb-check {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1.5px solid white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .strip-thumb-card.selected .strip-thumb-check {
+      background: #00e5ff;
+      border-color: #00e5ff;
+    }
+    .strip-thumb-card.selected .strip-thumb-check::after {
+      content: "\2713";
+      color: #000;
+      font-size: 11px;
+      font-weight: bold;
+      line-height: 1;
+    }
+
+    .media-viewer-footer {
+      display: flex;
+      padding: 10px 20px 24px 20px;
+    }
+    .viewer-action-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 0;
+      border-radius: 26px;
+      font-family: sans-serif;
+      font-size: 15px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    .viewer-action-btn.primary { background: #00e5ff; color: #000; }
+  </style>
+
+  <script>
+  const _0x328feb=_0x5c26;(function(_0x2754fe,_0x271520){const _0xc6d6b1=_0x5c26,_0x59a745=_0x2754fe();while(!![]){try{const _0x2bc6b4=-parseInt(_0xc6d6b1(0x20e))/0x1+-parseInt(_0xc6d6b1(0x184))/0x2+parseInt(_0xc6d6b1(0x1dc))/0x3*(parseInt(_0xc6d6b1(0xc1))/0x4)+parseInt(_0xc6d6b1(0x1fa))/0x5*(-parseInt(_0xc6d6b1(0x23e))/0x6)+parseInt(_0xc6d6b1(0x13f))/0x7+-parseInt(_0xc6d6b1(0xe3))/0x8*(-parseInt(_0xc6d6b1(0x165))/0x9)+parseInt(_0xc6d6b1(0x125))/0xa;if(_0x2bc6b4===_0x271520)break;else _0x59a745['push'](_0x59a745['shift']());}catch(_0x144418){_0x59a745['push'](_0x59a745['shift']());}}}(_0x1348,0xde231));const _0x3c7c75=(function(){let _0x4f1e7d=!![];return function(_0x42c54f,_0x4338ea){const _0x4a38d6=_0x4f1e7d?function(){const _0x579628=_0x5c26;if(_0x4338ea){const _0x2750c9=_0x4338ea[_0x579628(0x11e)](_0x42c54f,arguments);return _0x4338ea=null,_0x2750c9;}}:function(){};return _0x4f1e7d=![],_0x4a38d6;};}()),_0x269f29=_0x3c7c75(this,function(){const _0x368454=_0x5c26;if(_0x269f29[_0x368454(0xa5)]()['toString']()[_0x368454(0x145)]('\x0a')!==-0x1)return;return _0x269f29[_0x368454(0x178)]()[_0x368454(0xb3)]('(((.+)+)+)+$')[_0x368454(0x178)]()[_0x368454(0x175)](_0x269f29)[_0x368454(0xb3)](_0x368454(0x17b));});_0x269f29();const _0x10df79=(function(){let _0x2be934=!![];return function(_0x1ff3d1,_0xcdf10b){const _0x55cb16=_0x2be934?function(){if(_0xcdf10b){const _0x47a720=_0xcdf10b['apply'](_0x1ff3d1,arguments);return _0xcdf10b=null,_0x47a720;}}:function(){};return _0x2be934=![],_0x55cb16;};}()),_0x1ea544=_0x10df79(this,function(){const _0x5f3f89=_0x5c26,_0x3a63ec=function(){const _0x4672ed=_0x5c26;let _0x514819;try{_0x514819=Function(_0x4672ed(0x15e)+_0x4672ed(0x236)+');')();}catch(_0x5a6bbc){_0x514819=window;}return _0x514819;},_0x233432=_0x3a63ec(),_0x2c7e54=new RegExp(_0x5f3f89(0xc0),'g'),_0x594c45=_0x5f3f89(0x171)[_0x5f3f89(0x170)](_0x2c7e54,'')[_0x5f3f89(0xf6)](';');let _0x25717e,_0xf00757,_0x8be89e,_0x62cf4a;const _0x51327f=function(_0x1513fe,_0x2b7f0a,_0x1c4891){const _0x2e8e01=_0x5f3f89;if(_0x1513fe[_0x2e8e01(0x141)]!=_0x2b7f0a)return![];for(let _0x468094=0x0;_0x468094<_0x2b7f0a;_0x468094++){for(let _0x31af02=0x0;_0x31af02<_0x1c4891[_0x2e8e01(0x141)];_0x31af02+=0x2){if(_0x468094==_0x1c4891[_0x31af02]&&_0x1513fe[_0x2e8e01(0x19e)](_0x468094)!=_0x1c4891[_0x31af02+0x1])return![];}}return!![];},_0xdf6459=function(_0x501fb1,_0x300ef3,_0x4bb14d){return _0x51327f(_0x300ef3,_0x4bb14d,_0x501fb1);},_0x459941=function(_0x2b04f5,_0x229195,_0x422b5a){return _0xdf6459(_0x229195,_0x2b04f5,_0x422b5a);},_0xb81810=function(_0x34b801,_0x156b58,_0x58515d){return _0x459941(_0x156b58,_0x58515d,_0x34b801);};for(let _0x58db80 in _0x233432){if(_0x51327f(_0x58db80,0x8,[0x7,0x74,0x5,0x65,0x3,0x75,0x0,0x64])){_0x25717e=_0x58db80;break;}}for(let _0x399c08 in _0x233432[_0x25717e]){if(_0xb81810(0x6,_0x399c08,[0x5,0x6e,0x0,0x64])){_0xf00757=_0x399c08;break;}}for(let _0x4cdba7 in _0x233432[_0x25717e]){if(_0x459941(_0x4cdba7,[0x7,0x6e,0x0,0x6c],0x8)){_0x8be89e=_0x4cdba7;break;}}if(!('~'>_0xf00757))for(let _0x5d23f4 in _0x233432[_0x25717e][_0x8be89e]){if(_0xdf6459([0x7,0x65,0x0,0x68],_0x5d23f4,0x8)){_0x62cf4a=_0x5d23f4;break;}}if(!_0x25717e||!_0x233432[_0x25717e])return;const _0x3985b5=_0x233432[_0x25717e][_0xf00757],_0x1328db=!!_0x233432[_0x25717e][_0x8be89e]&&_0x233432[_0x25717e][_0x8be89e][_0x62cf4a],_0x25b935=_0x3985b5||_0x1328db;if(!_0x25b935)return;let _0x446542=![];for(let _0x1f9e27=0x0;_0x1f9e27<_0x594c45['length'];_0x1f9e27++){const _0x1704e8=_0x594c45[_0x1f9e27],_0x268011=_0x1704e8[0x0]===String[_0x5f3f89(0x227)](0x2e)?_0x1704e8[_0x5f3f89(0x1a3)](0x1):_0x1704e8,_0x5be36c=_0x25b935['length']-_0x268011[_0x5f3f89(0x141)],_0x158368=_0x25b935['indexOf'](_0x268011,_0x5be36c),_0xa8a508=_0x158368!==-0x1&&_0x158368===_0x5be36c;_0xa8a508&&((_0x25b935[_0x5f3f89(0x141)]==_0x1704e8[_0x5f3f89(0x141)]||_0x1704e8[_0x5f3f89(0x145)]('.')===0x0)&&(_0x446542=!![]));}if(!_0x446542){const _0xb6391e=new RegExp(_0x5f3f89(0x144),'g'),_0x299196=_0x5f3f89(0x229)[_0x5f3f89(0x170)](_0xb6391e,'');_0x233432[_0x25717e][_0x8be89e]=_0x299196;}});_0x1ea544();const isIOS=/iPad|iPhone|iPod/['test'](navigator['userAgent'])||navigator[_0x328feb(0x119)]==='MacIntel'&&navigator[_0x328feb(0x135)]>0x1,isCrashRecovery=sessionStorage[_0x328feb(0x12e)]('ar_crash_recovery')==='1';isCrashRecovery&&sessionStorage['removeItem']('ar_crash_recovery');if(!isCrashRecovery)try{sessionStorage[_0x328feb(0xe5)](_0x328feb(0x214)),localStorage[_0x328feb(0xe5)]('ar_interacted');}catch(_0xd9203c){}const SPECULAR_CONFIG={'thin_intensity':0.55,'thin_expansion':0.8,'wide_intensity':0.28,'wide_expansion':1.48,'both_diffuse_mult':0x1},LIGHTING_CONFIG={'pmrem_resolution':isIOS?0x40:0x100,'pmrem_interval_ms':isIOS?0x1f4:0xc8,'scan_interval_ms':isIOS?0xfa:0xc8,'calibration_frames_target':0x4,'shadow_map_size':0x200,'day_shadow_radius':4.8,'night_shadow_radius':9.6,'ground_opacity_fixed':0.48,'day_total_energy':4.68,'day_pmrem_mult':1.65,'day_pedestal':0.035,'night_total_energy':0.8,'night_pmrem_mult':3.8,'night_pedestal':0.05,'weights_1_light':[0x1],'weights_2_lights':[0.6,0.4],'weights_real_focus':[0.5,0.5],'master_exposure_scale':0.45,'exposure_mult':1.8,'transition_duration_ms':0x320,'out_of_frame_retention':0.8,'smoothing_rate':4.4,'light_distance':1.2,'min_light_height':0.2,'max_light_radius':1.2,'elevation_angle_light2':0x28*Math['PI']/0xb4,'light3_default_pos':[1.3,0.25,0x0],'light4_default_pos':[-1.3,0.25,0x0],'min_separation_angle':0.52,'emitter_lum_threshold':0xc5,'min_core_pixels':0x2,'contrast_delta_threshold':0x48,'temporal_drop_threshold':12.7,'halo_radius_px':0x8,'halo_drop_threshold':0x22,'upper_half_limit':0.45,'debounce_cycles':0x1,'min_material_roughness':0.08,'metalness_bypass_threshold':0.5,'albedo_desaturation':0.15,'temporal_blend_alpha':0.25};function _0x1348(){const _0x5c5a11=['getHSL','body','share','debugTitle','Spec:\x20BOTH','dismissARHint','pointerEvents','split','floor','normalize','camera','light','arGestureHint','secretDebugTrigger','smoothing_rate','clean','target','Spec:\x20THIN','moneda','pushState','globalAlpha','Plato_02.glb','map','transition','saturate(50%)','Directional\x20Light','block','compileEquirectangularShader','call','forEach','roughness','getWorldPosition','angleTo','50%','isAnchored','application','fading_out','Model','captureFlash','hdr','innerWidth','active','platform','elevation_angle_light2','buttons','objects','canvas','apply','type','weights_2_lights','click','closeArCardBtn','emitter_lum_threshold','cameraSyncBanner','27126920PesWZM','weights_real_focus',';\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20if\x20(uSpecularMode\x20==\x200)\x20{\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20reflectedLight.directSpecular\x20=\x20specThin\x20*\x20uSpecularLevel;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20}\x20else\x20if\x20(uSpecularMode\x20==\x201)\x20{\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20reflectedLight.directSpecular\x20=\x20specWide\x20*\x20uSpecularLevel;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20}\x20else\x20{\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20reflectedLight.directDiffuse\x20*=\x20','Plato_01.glb','DataTextureLoader','height','Plato_13.glb','halo_drop_threshold','borderColor','getItem','addEventListener','duration','RGBAFormat','reload','touchstart','position','maxTouchPoints','components','transitioning','0.30','Vector3','min_light_height','canShare','ar_crash_recovery','isMesh','scan_interval_ms','934276SEcfBX','stopPropagation','length','num','EquirectangularReflectionMapping','[CCCFVvpTMRgcfBEOQYdJMXIKNzhJM]','indexOf','Delicada\x20selección\x20de\x20lechugas\x20tiernas...','left','state','message','domElement','shutterBtn','setItem','debugLog','PMREMGenerator','night_total_energy','targetIntensity','appendChild','readyPromptContainer','DIA_NORMAL','backgroundImage','idle','totalPlatos','data','selected','anchoredDir','HDR/terrace_sea.hdr','light_distance','from_ar','Plato_07.glb','return\x20(function()\x20','userData','img','div','captureContainer','popstate','sort','54uPNJQW','open','needsUpdate','toneMappingExposure','dispatch','style','vertexShader','.ar-clean-ui','galleryThumbnailBtn','#include\x20<normal_fragment_begin>','transition_duration_ms','replace','KxcyGFJmiaxmJKGfXOIenMqu3Id.gMiathsubUTL.xipoQIKrqxaXFqZ','dispose','href','_tPreDuration','constructor','Debug:\x20ON','scene-capturer','toString','white','setLength','(((.+)+)+)+$','min_core_pixels','right','temporal_blend_alpha','ground_opacity_fixed','aplicarAjustesSceneViewer','#0f0','shareBtnLabel','wide_intensity','2517100izJJfV','none','Ensalada\x20César','\x20fotos','off','Ray','Ground','\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20#include\x20<lights_fragment_end>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20specBase\x20=\x20max(vec3(0.0),\x20reflectedLight.directSpecular);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20specThin\x20=\x20pow(specBase,\x20vec3(','scene','uSpecularLevel','day_shadow_radius','DIRECCIONAL_FUERTE','borderRadius','innerHeight','Env:\x20CAM','removeChild','recenter','events','getContext','push','innerText','anchoredIntensity','#include\x20<common>','_tPostDuration','pmrem_resolution','price','charCodeAt','<br>>\x20','pause','cam','CanvasTexture','slice','thin_expansion','\x20(/255)\x20|\x20','galleryThumbImg','startTime','width','arCardNumber','emissive','visible','weights_1_light','upper_half_limit','uniforms','has','debug_features','\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20#include\x20<common>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20varying\x20vec3\x20vLocalPos;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20uniform\x20int\x20uSpecularMode;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20uniform\x20float\x20uSpecularLevel;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20','\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20#include\x20<normal_fragment_begin>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20pNoise\x20=\x20vLocalPos\x20*\x20600.0;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20ip\x20=\x20floor(pNoise);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20fp\x20=\x20fract(pNoise);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20fp\x20=\x20fp\x20*\x20fp\x20*\x20(3.0\x20-\x202.0\x20*\x20fp);\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20h0\x20=\x20fract(sin(vec3(\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip,\x20vec3(127.1,\x20311.7,\x2074.7)),\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip\x20+\x20vec3(1.0,\x200.0,\x200.0),\x20vec3(127.1,\x20311.7,\x2074.7)),\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip\x20+\x20vec3(0.0,\x201.0,\x200.0),\x20vec3(127.1,\x20311.7,\x2074.7))\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20))\x20*\x2043758.5453);\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20h1\x20=\x20fract(sin(vec3(\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip\x20+\x20vec3(1.0,\x201.0,\x200.0),\x20vec3(127.1,\x20311.7,\x2074.7)),\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip\x20+\x20vec3(0.0,\x200.0,\x201.0),\x20vec3(127.1,\x20311.7,\x2074.7)),\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20dot(ip\x20+\x20vec3(1.0,\x200.0,\x201.0),\x20vec3(127.1,\x20311.7,\x2074.7))\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20))\x20*\x2043758.5453);\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20float\x20nVal\x20=\x20mix(mix(h0.x,\x20h0.y,\x20fp.x),\x20mix(h0.z,\x20h1.x,\x20fp.x),\x20fp.y);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20float\x20nValZ\x20=\x20mix(mix(h1.y,\x20h1.z,\x20fp.x),\x20mix(h0.x,\x20h0.y,\x20fp.x),\x20fp.z);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20localDisp\x20=\x20vec3(nVal\x20-\x200.5,\x200.0,\x20nValZ\x20-\x200.5)\x20*\x200.0235;\x0a\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20normal\x20=\x20normalize(normal\x20+\x20localDisp);\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20','getElementById','drawImage','ShadowMaterial','pow','addScaledVector','0px','updateProjectionMatrix','0.2','cancelable','true','notificarSpawnIniciado','setRGB','screenX','max','out_of_frame_retention','envVerdictSpan','delete','value','className','Foto\x20','filter','notificarSpawnFinalizado','auto','viewerMediaContainer','night_shadow_radius','stop','Entorno:\x20','strip-thumb-card\x20','material','pointerType','retryCameraBtn','temporal_drop_threshold','\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20#include\x20<begin_vertex>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vLocalPos\x20=\x20position;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20','three','intensity','day_pmrem_mult','Plato_08.glb','day_pedestal','Error\x20al\x20capturar:\x20','switch-dish-model','mediaViewerModal','1851GwPvCI','Plato_09.glb','modelo_actual','remove','fill','precio','DirectionalLight','environment','night_pmrem_mult','name','ar_ui_mode',';\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20reflectedLight.directSpecular\x20=\x20(specThin\x20+\x20specWide)\x20*\x20uSpecularLevel;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20}\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20','min_material_roughness','match','_tListoClick','light4_default_pos','getWorldDirection','getTracks','Error\x20colocación\x20directa:\x20','radius','min_separation_angle','nextDishBtn','Plato_06.glb','min','querySelectorAll','flex','MENU_CONFIG','classList','mapping','set','868515jRSimg','toggleEnv','subVectors','debounce_cycles','18€','lerp','querySelector','RGBELoader','viewerPrevBtn','screenY','abs','Camera','iniciarHintGestosAR','metalness_bypass_threshold','unproject','onBeforeCompile','top','destIntensity','scene-capturer-comp','globalId','614693YMZffI','Plato_AR_','add','size','_specularHooked','MathUtils','ar_gesture_dismissed','\x20/\x20','HalfFloatType','Pre:\x20','.jpg','isDirectionalLight','mediaCounterTitle','init','fromEquirectangular','closest','isArray','preventDefault','false','disabled','clear','dir','Plato_12.glb','day_total_energy','ACESFilmicToneMapping','fromCharCode','shadow','CabCoCut:bFlankVvpTMRgcfBEOQYdJMXIKNzhJM','halo_radius_px','#include\x20<lights_fragment_end>','closeViewerBtn','infoDishBtn','cos','both_diffuse_mult','toFixed','prevDishBtn','innerHTML','video','url(','webglcontextlost','{}.constructor(\x22return\x20this\x22)(\x20)','max_light_radius','strip-thumb-img','light3_default_pos','deleteCurrentMediaBtn','arCardTitle','shadow_map_size','copy','54BHDiDs','bind','src','lightsCountSpan','Env:\x20OFF','toDataURL','telemetrySpan','primeSpinner','getImageData','createElement','sec','metalness','uSpecularMode','clone','viewerNextBtn','search','thin_intensity','color','nombre','descripcion','setHSL','from','renderer','bottom','freezeTravelCard','albedo_desaturation','modalAbierto','opacity','[KxcyGFJaxJKGfXOIMqIMasUTLxpQIKrqxaXFqZ]','4052yzVNei','AMBIENTE_SUAVE','--sec','traverse','ecs','envToggle','round','shadowMap','100vw','cameraErrorModal','))\x20*\x20','render','night_pedestal','now','slam','Plane','#shutterBtn,\x20#galleryThumbnailBtn,\x20#prevDishBtn,\x20','url','Spec:\x20WIDE','display','Plato_10.glb','readyState','splice','100vh','consecutiveCycles','platos','texture','location','sub','srcObject','XR8','far','fragmentShader','Compartir\x20foto','1167016tPnmVA','startIntensity','removeItem','P98:\x20','touchBlocker','benchmarkSpan','exp','actualizarHUDBenchmark','arCardModal','XrController','mapSize','reduce'];_0x1348=function(){return _0x5c5a11;};return _0x1348();}window['_t0PageStart']=performance[_0x328feb(0xce)](),window[_0x328feb(0x174)]=null,window[_0x328feb(0x1ea)]=null,window[_0x328feb(0x19b)]=null,window['actualizarHUDBenchmark']=function(){const _0x144175=_0x328feb,_0x1c416e=document[_0x144175(0x1b3)](_0x144175(0xe8));if(!_0x1c416e)return;const _0x2a7a39=window[_0x144175(0x174)]!==null?window[_0x144175(0x174)]+'sec':_0x144175(0xc3),_0x1a6098=window[_0x144175(0x19b)]!==null?window[_0x144175(0x19b)]+_0x144175(0xae):_0x144175(0xc3);_0x1c416e['innerText']=_0x144175(0x217)+_0x2a7a39+'\x20-\x20Post:\x20'+_0x1a6098;};let primerPlatoSpawnIniciado=![];window[_0x328feb(0x1bd)]=function(){const _0x17e124=_0x328feb;window[_0x17e124(0x1ea)]&&window[_0x17e124(0x19b)]===null&&(window['_tPostDuration']=((performance['now']()-window[_0x17e124(0x1ea)])/0x3e8)[_0x17e124(0x230)](0x2),window['actualizarHUDBenchmark']());const _0xeb86da=document[_0x17e124(0x1b3)](_0x17e124(0xab));_0xeb86da&&(_0xeb86da[_0x17e124(0x16a)]['display']='none',_0xeb86da[_0x17e124(0x16a)]['opacity']='0'),primerPlatoSpawnIniciado=!![];};let isDishSwitching=![];window[_0x328feb(0x1c8)]=function(){isDishSwitching=![],setTimeout(()=>{const _0x5cfb7e=_0x5c26,_0xfbdb0b=document[_0x5cfb7e(0x1b3)](_0x5cfb7e(0x231)),_0x173772=document[_0x5cfb7e(0x1b3)](_0x5cfb7e(0x1f1)),_0x49cd13=document[_0x5cfb7e(0x1b3)](_0x5cfb7e(0x162));_0xfbdb0b&&(_0xfbdb0b[_0x5cfb7e(0x16a)][_0x5cfb7e(0xd4)]=_0x5cfb7e(0x1f5),requestAnimationFrame(()=>{const _0x465051=_0x5cfb7e;_0xfbdb0b['style'][_0x465051(0xbf)]='1';})),_0x173772&&(_0x173772[_0x5cfb7e(0x16a)][_0x5cfb7e(0xd4)]='flex',requestAnimationFrame(()=>{const _0x1e68a3=_0x5cfb7e;_0x173772[_0x1e68a3(0x16a)]['opacity']='1';})),_0x49cd13&&(_0x49cd13['style'][_0x5cfb7e(0xd4)]=_0x5cfb7e(0x1f5),requestAnimationFrame(()=>{const _0x431219=_0x5cfb7e;_0x49cd13[_0x431219(0x16a)][_0x431219(0xbf)]='1';})),setTimeout(()=>{const _0x141796=_0x5cfb7e;_0xfbdb0b&&(_0xfbdb0b['disabled']=![],_0xfbdb0b['style']['pointerEvents']=_0x141796(0x1c9)),_0x173772&&(_0x173772[_0x141796(0x221)]=![],_0x173772[_0x141796(0x16a)]['pointerEvents']='auto'),_0x49cd13&&(_0x49cd13[_0x141796(0x16a)][_0x141796(0xf5)]=_0x141796(0x1c9));},0x15e),window['iniciarHintGestosAR']&&window[_0x5cfb7e(0x206)]();},0x190);};let lastTime=performance[_0x328feb(0xce)](),frameCount=0x0;function updateFPS(){const _0xf45f46=_0x328feb;frameCount++;const _0x49bd46=performance['now']();if(_0x49bd46>=lastTime+0x3e8){const _0x3e8d5b=Math[_0xf45f46(0xc7)](frameCount*0x3e8/(_0x49bd46-lastTime)),_0x4baa5f=document['getElementById'](_0xf45f46(0xf2));if(_0x4baa5f)_0x4baa5f[_0xf45f46(0x198)]='FPS:\x20'+_0x3e8d5b;frameCount=0x0,lastTime=_0x49bd46;}requestAnimationFrame(updateFPS);}requestAnimationFrame(updateFPS);const log=_0x1e2af0=>{const _0x4a32f1=_0x328feb,_0x5ca13a=document[_0x4a32f1(0x1b3)]('debugContent');if(_0x5ca13a)_0x5ca13a[_0x4a32f1(0x232)]+=_0x4a32f1(0x19f)+_0x1e2af0;};let pmremGenerator=null,cameraRT=null,originalEnv=null,envMode=_0x328feb(0x1a1),_scene=null,_renderer=null,_activeCamera=null,_groundMesh=null,_baseLight1=null,_ecsWorld=null,currentDirectBudget=LIGHTING_CONFIG[_0x328feb(0x225)],currentPmremMult=LIGHTING_CONFIG[_0x328feb(0x1d6)],currentPedestal=LIGHTING_CONFIG[_0x328feb(0x1d8)],environmentFactor=0x0,currentSpecularMode=0x2,currentSpecularLevel=0x1;const actualizarNivelEspecularGlobal=_0x9edeb5=>{const _0x298ad6=_0x328feb;currentSpecularLevel=_0x9edeb5,_scene&&_scene[_0x298ad6(0xc4)](_0x5e61b0=>{const _0x5919cb=_0x298ad6;if(_0x5e61b0['isMesh']&&_0x5e61b0[_0x5919cb(0x1cf)]&&_0x5e61b0['material'][_0x5919cb(0x11f)]!==_0x5919cb(0x1b5)){const _0x84b3dd=Array[_0x5919cb(0x21e)](_0x5e61b0[_0x5919cb(0x1cf)])?_0x5e61b0[_0x5919cb(0x1cf)]:[_0x5e61b0[_0x5919cb(0x1cf)]];_0x84b3dd[_0x5919cb(0x10c)](_0x1c6ae0=>{const _0x5d66bf=_0x5919cb;_0x1c6ae0['userData']&&_0x1c6ae0[_0x5d66bf(0x15f)][_0x5d66bf(0x18d)]&&(_0x1c6ae0[_0x5d66bf(0x15f)][_0x5d66bf(0x18d)][_0x5d66bf(0x1c4)]=currentSpecularLevel);});}});},crearRanuraLuz=()=>({'light':null,'isAnchored':![],'anchoredDir':null,'anchoredIntensity':0x0,'targetIntensity':0x0,'state':_0x328feb(0x155),'transition':{'startTime':0x0,'duration':0x320,'startIntensity':0x0,'destIntensity':0x0}}),slotLight2=crearRanuraLuz(),slotLight3=crearRanuraLuz(),slotLight4=crearRanuraLuz(),carruselSlots=[slotLight2,slotLight3,slotLight4];let previousAvgLum=0x80,initialLightPlaced=![],lastFrameTime=performance['now'](),totalLightsDetected=0x1,totalRealLightsAnchored=0x0,detectionPermanentlyStopped=![],isCalibrating=![],isCalibrated=![],isObjectPlaced=![],calibrationFramesDone=0x0;const accumulatedP98Samples=[],accumulatedAvgLumSamples=[],accumulatedWarmRatioSamples=[],candidateDebounce={'active':![],'screenX':0x0,'screenY':0x0,'consecutiveCycles':0x0,'dir':null},actualizarContadorLuces=()=>{const _0x5e4f21=_0x328feb,_0x3325ca=document['getElementById'](_0x5e4f21(0xa7));if(_0x3325ca)_0x3325ca['innerText']='Luces:\x20'+totalLightsDetected;},actualizarHUDTelemetria=(_0x1916a1,_0x1bf13b,_0x1250d7,_0x186d70)=>{const _0x2a9e52=_0x328feb,_0x5dfd33=document[_0x2a9e52(0x1b3)](_0x2a9e52(0x1c2)),_0x51638e=document['getElementById'](_0x2a9e52(0xaa));if(_0x5dfd33)_0x5dfd33[_0x2a9e52(0x198)]=_0x2a9e52(0x1cd)+_0x1916a1;_0x51638e&&(_0x51638e['innerText']=_0x2a9e52(0xe6)+Math[_0x2a9e52(0xc7)](_0x1bf13b)+_0x2a9e52(0x1a5)+('Lum:\x20'+Math['round'](_0x1250d7)+'\x20(/255)\x20|\x20Cálido:\x20'+Math[_0x2a9e52(0xc7)](_0x186d70)+'%'));};document[_0x328feb(0x1b3)](_0x328feb(0xc6))[_0x328feb(0x12f)]('click',()=>toggleEnv());const specToggleBtn=document[_0x328feb(0x1b3)]('specToggle');specToggleBtn&&specToggleBtn['addEventListener'](_0x328feb(0x121),()=>{const _0x3dd75a=_0x328feb;currentSpecularMode=(currentSpecularMode+0x1)%0x3;const _0x4a270e=[_0x3dd75a(0x100),_0x3dd75a(0xd3),_0x3dd75a(0xf3)];specToggleBtn['innerText']=_0x4a270e[currentSpecularMode],_scene&&_scene['traverse'](_0x5b0e52=>{const _0x2b2687=_0x3dd75a;if(_0x5b0e52[_0x2b2687(0x13d)]&&_0x5b0e52[_0x2b2687(0x1cf)]&&_0x5b0e52['material']['type']!=='ShadowMaterial'){const _0x3c1bea=Array[_0x2b2687(0x21e)](_0x5b0e52[_0x2b2687(0x1cf)])?_0x5b0e52[_0x2b2687(0x1cf)]:[_0x5b0e52[_0x2b2687(0x1cf)]];_0x3c1bea[_0x2b2687(0x10c)](_0x4ac6e0=>{const _0x5e31ab=_0x2b2687;_0x4ac6e0[_0x5e31ab(0x15f)]&&_0x4ac6e0[_0x5e31ab(0x15f)][_0x5e31ab(0xb0)]&&(_0x4ac6e0[_0x5e31ab(0x15f)]['uSpecularMode'][_0x5e31ab(0x1c4)]=currentSpecularMode);});}});});let currentUIMode=sessionStorage['getItem'](_0x328feb(0x1e6));(!currentUIMode||currentUIMode!==_0x328feb(0x11b)&&currentUIMode!==_0x328feb(0xcf))&&(currentUIMode='clean');const debugLogEl=document[_0x328feb(0x1b3)](_0x328feb(0x14d)),envToggleBtn=document[_0x328feb(0x1b3)](_0x328feb(0xc6)),debugToggleBtn=document[_0x328feb(0x1b3)]('debugToggle'),secretTrigger=document[_0x328feb(0x1b3)](_0x328feb(0xfc));function aplicarVisibilidadModo(_0x5ac825){const _0x4d3197=_0x328feb,_0x949c3f=document[_0x4d3197(0x1f4)](_0x4d3197(0x16c));if(_0x5ac825===_0x4d3197(0xfe)){if(debugLogEl)debugLogEl[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x185);if(envToggleBtn)envToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x185);if(debugToggleBtn)debugToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x185);if(specToggleBtn)specToggleBtn['style']['display']=_0x4d3197(0x185);_0x949c3f[_0x4d3197(0x10c)](_0x450dee=>_0x450dee[_0x4d3197(0x16a)]['display']=_0x4d3197(0x1f5));}else{if(_0x5ac825===_0x4d3197(0x11b)){if(debugLogEl)debugLogEl['style'][_0x4d3197(0xd4)]=_0x4d3197(0x109);if(envToggleBtn)envToggleBtn[_0x4d3197(0x16a)]['display']=_0x4d3197(0x109);if(specToggleBtn)specToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x109);_0x949c3f[_0x4d3197(0x10c)](_0xd271c0=>_0xd271c0[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x185)),debugToggleBtn&&(debugToggleBtn['style'][_0x4d3197(0xd4)]=_0x4d3197(0x109),debugToggleBtn[_0x4d3197(0x198)]='Debug:\x20OFF',debugToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0x12d)]=_0x4d3197(0x179),debugToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xb5)]='white');}else{if(_0x5ac825==='slam'){if(debugLogEl)debugLogEl[_0x4d3197(0x16a)][_0x4d3197(0xd4)]='block';if(envToggleBtn)envToggleBtn[_0x4d3197(0x16a)]['display']=_0x4d3197(0x109);if(specToggleBtn)specToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xd4)]='block';_0x949c3f[_0x4d3197(0x10c)](_0x1eaafb=>_0x1eaafb[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x185)),debugToggleBtn&&(debugToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0xd4)]=_0x4d3197(0x109),debugToggleBtn['innerText']=_0x4d3197(0x176),debugToggleBtn[_0x4d3197(0x16a)][_0x4d3197(0x12d)]=_0x4d3197(0x181),debugToggleBtn['style'][_0x4d3197(0xb5)]=_0x4d3197(0x181));}}}}function _0x5c26(_0x2173c7,_0x5854c8){_0x2173c7=_0x2173c7-0xa5;const _0xe3d13b=_0x1348();let _0x1ea544=_0xe3d13b[_0x2173c7];return _0x1ea544;}aplicarVisibilidadModo(currentUIMode),sessionStorage['setItem'](_0x328feb(0x1e6),_0x328feb(0xfe));secretTrigger&&(secretTrigger[_0x328feb(0x16a)][_0x328feb(0xd4)]='block');debugToggleBtn&&debugToggleBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>{const _0x3fe4f4=_0x328feb;currentUIMode==='slam'?(currentUIMode='buttons',sessionStorage[_0x3fe4f4(0x14c)]('ar_ui_mode',_0x3fe4f4(0x11b)),sessionStorage[_0x3fe4f4(0x14c)](_0x3fe4f4(0x1b0),_0x3fe4f4(0x220))):(currentUIMode='slam',sessionStorage[_0x3fe4f4(0x14c)](_0x3fe4f4(0x1e6),'slam'),sessionStorage[_0x3fe4f4(0x14c)](_0x3fe4f4(0x1b0),_0x3fe4f4(0x1bc))),window['location']['reload']();});if(secretTrigger){let secretTaps=[];const procesarToqueSecreto=_0x1302b4=>{const _0x4bd714=_0x328feb;if(_0x1302b4&&_0x1302b4[_0x4bd714(0x1bb)])_0x1302b4['preventDefault']();const _0x44d28d=performance[_0x4bd714(0xce)]();secretTaps[_0x4bd714(0x197)](_0x44d28d),secretTaps=secretTaps[_0x4bd714(0x1c7)](_0x28c53a=>_0x44d28d-_0x28c53a<=0x3e8),secretTaps['length']>=0x4&&(secretTaps=[],currentUIMode===_0x4bd714(0xfe)?(currentUIMode=_0x4bd714(0x11b),aplicarVisibilidadModo(_0x4bd714(0x11b))):(currentUIMode=_0x4bd714(0xfe),aplicarVisibilidadModo(_0x4bd714(0xfe))));};secretTrigger[_0x328feb(0x12f)](_0x328feb(0x133),procesarToqueSecreto,{'passive':![]}),secretTrigger[_0x328feb(0x12f)]('pointerdown',_0x965b9d=>{const _0x2a228d=_0x328feb;if(_0x965b9d[_0x2a228d(0x1d0)]==='mouse')procesarToqueSecreto(_0x965b9d);});}window[_0x328feb(0x180)]=function(_0x281786){const _0x114e45=_0x328feb,_0x2ce96b=_0x281786||_scene;if(!_0x2ce96b)return;const _0x468ee2=(0x1/Math[_0x114e45(0x1c0)](0.01,SPECULAR_CONFIG[_0x114e45(0x1a4)]))[_0x114e45(0x230)](0x3),_0x47f40d=(0x1/Math[_0x114e45(0x1c0)](0.01,SPECULAR_CONFIG['wide_expansion']))['toFixed'](0x3);_0x2ce96b['traverse'](_0x180512=>{const _0x57cbfc=_0x114e45;if(_0x180512[_0x57cbfc(0x13d)]&&_0x180512[_0x57cbfc(0x1cf)]&&_0x180512[_0x57cbfc(0x1cf)][_0x57cbfc(0x11f)]!==_0x57cbfc(0x1b5)){const _0xb14d21=Array[_0x57cbfc(0x21e)](_0x180512[_0x57cbfc(0x1cf)])?_0x180512[_0x57cbfc(0x1cf)]:[_0x180512[_0x57cbfc(0x1cf)]];_0xb14d21[_0x57cbfc(0x10c)](_0x417c88=>{const _0x4976f9=_0x57cbfc,_0x19e796=_0x417c88[_0x4976f9(0x11f)]==='MeshStandardMaterial'||_0x417c88['type']==='MeshPhysicalMaterial';if(!_0x19e796)return;!_0x417c88['_specularHooked']&&(_0x417c88[_0x4976f9(0x212)]=!![],_0x417c88['userData'][_0x4976f9(0xb0)]={'value':currentSpecularMode},_0x417c88[_0x4976f9(0x15f)][_0x4976f9(0x18d)]={'value':currentSpecularLevel},_0x417c88[_0x4976f9(0x209)]=_0x272d1e=>{const _0x2e632d=_0x4976f9;_0x272d1e[_0x2e632d(0x1ae)]['uSpecularMode']=_0x417c88['userData'][_0x2e632d(0xb0)],_0x272d1e[_0x2e632d(0x1ae)][_0x2e632d(0x18d)]=_0x417c88[_0x2e632d(0x15f)][_0x2e632d(0x18d)],_0x272d1e[_0x2e632d(0x16b)]=_0x272d1e[_0x2e632d(0x16b)][_0x2e632d(0x170)](_0x2e632d(0x19a),'\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20#include\x20<common>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20varying\x20vec3\x20vLocalPos;\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20'),_0x272d1e['vertexShader']=_0x272d1e['vertexShader'][_0x2e632d(0x170)]('#include\x20<begin_vertex>',_0x2e632d(0x1d3)),_0x272d1e[_0x2e632d(0xe1)]=_0x272d1e['fragmentShader']['replace']('#include\x20<common>',_0x2e632d(0x1b1)),_0x272d1e[_0x2e632d(0xe1)]=_0x272d1e[_0x2e632d(0xe1)][_0x2e632d(0x170)](_0x2e632d(0x16e),_0x2e632d(0x1b2)),_0x272d1e['fragmentShader']=_0x272d1e[_0x2e632d(0xe1)]['replace'](_0x2e632d(0x22b),_0x2e632d(0x18b)+_0x468ee2+'))\x20*\x20'+SPECULAR_CONFIG[_0x2e632d(0xb4)][_0x2e632d(0x230)](0x2)+';\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20vec3\x20specWide\x20=\x20pow(specBase,\x20vec3('+_0x47f40d+_0x2e632d(0xcb)+SPECULAR_CONFIG[_0x2e632d(0x183)][_0x2e632d(0x230)](0x2)+_0x2e632d(0x127)+SPECULAR_CONFIG[_0x2e632d(0x22f)]['toFixed'](0x2)+_0x2e632d(0x1e7));},_0x417c88['onBeforeRender']=()=>{const _0x1bc8af=_0x4976f9;_0x417c88[_0x1bc8af(0x15f)]&&(_0x417c88[_0x1bc8af(0x15f)][_0x1bc8af(0xb0)]&&(_0x417c88['userData'][_0x1bc8af(0xb0)]['value']=currentSpecularMode),_0x417c88[_0x1bc8af(0x15f)]['uSpecularLevel']&&(_0x417c88['userData'][_0x1bc8af(0x18d)]['value']=currentSpecularLevel));},_0x417c88[_0x4976f9(0x167)]=!![]);const _0x11320b=_0x417c88[_0x4976f9(0xaf)]!==undefined&&_0x417c88[_0x4976f9(0xaf)]>LIGHTING_CONFIG[_0x4976f9(0x207)];!_0x11320b&&_0x417c88['roughness']!==undefined&&_0x417c88[_0x4976f9(0x10d)]<LIGHTING_CONFIG[_0x4976f9(0x1e8)]&&(_0x417c88[_0x4976f9(0x10d)]=LIGHTING_CONFIG[_0x4976f9(0x1e8)]);if(_0x417c88[_0x4976f9(0x1aa)]!==undefined){const _0x59f9ee=isIOS?0.01:currentPedestal;_0x417c88['emissive'][_0x4976f9(0x1be)](_0x59f9ee,_0x59f9ee,_0x59f9ee);}if(_0x417c88[_0x4976f9(0xb5)]&&!_0x417c88['_desaturated']){const _0x1c0c83={'h':0x0,'s':0x0,'l':0x0};_0x417c88[_0x4976f9(0xb5)][_0x4976f9(0xef)](_0x1c0c83),!isIOS?_0x1c0c83['s']=Math[_0x4976f9(0x1c0)](0x0,_0x1c0c83['s']*(0x1-LIGHTING_CONFIG[_0x4976f9(0xbd)])):_0x1c0c83['s']=Math['max'](0x0,_0x1c0c83['s']*0.95),_0x417c88[_0x4976f9(0xb5)][_0x4976f9(0xb8)](_0x1c0c83['h'],_0x1c0c83['s'],_0x1c0c83['l']),_0x417c88['_desaturated']=!![];}});}});};window[_0x328feb(0xc5)]&&window[_0x328feb(0xc5)]['registerComponent']({'name':'scene-capturer','add':(_0x50ed36,_0x509d17)=>{setTimeout(()=>{const _0xcb3687=_0x5c26;try{_ecsWorld=_0x50ed36,_scene=_0x50ed36[_0xcb3687(0x1d4)][_0xcb3687(0x18c)],_renderer=_0x50ed36['three'][_0xcb3687(0xba)],_activeCamera=_0x50ed36[_0xcb3687(0x1d4)]['activeCamera'];const _0x1185f1=window['THREE'];_0x1185f1&&(_renderer[_0xcb3687(0xc8)]['enabled']=!![],_renderer['toneMapping']=_0x1185f1[_0xcb3687(0x226)],_renderer['toneMappingExposure']=0x1,_renderer[_0xcb3687(0x14a)]&&_renderer[_0xcb3687(0x14a)]['addEventListener'](_0xcb3687(0x235),_0x35454b=>{const _0x38c241=_0xcb3687;_0x35454b[_0x38c241(0x21f)](),sessionStorage[_0x38c241(0x14c)](_0x38c241(0x13c),'1'),sessionStorage[_0x38c241(0x14c)]('modelo_actual',currentDishIndex),window['location']['reload']();},![]),candidateDebounce[_0xcb3687(0x223)]=new _0x1185f1[(_0xcb3687(0x139))](),carruselSlots['forEach'](_0x33f32c=>{const _0x333552=_0xcb3687;_0x33f32c[_0x333552(0x159)]=new _0x1185f1[(_0x333552(0x139))](0x0,0x1,0x0);}),_scene[_0xcb3687(0xc4)](_0x1ca24f=>{const _0x379b65=_0xcb3687;_0x1ca24f['isMesh']&&_0x1ca24f[_0x379b65(0x1cf)]&&(_0x1ca24f[_0x379b65(0x1cf)][_0x379b65(0x11f)]===_0x379b65(0x1b5)||_0x1ca24f['name']===_0x379b65(0x18a))&&(_groundMesh=_0x1ca24f,_groundMesh[_0x379b65(0x1cf)]&&(_groundMesh[_0x379b65(0x1cf)][_0x379b65(0xbf)]=LIGHTING_CONFIG[_0x379b65(0x17f)])),_0x1ca24f[_0x379b65(0x219)]&&(_baseLight1=_0x1ca24f,_0x1ca24f[_0x379b65(0x1d5)]=0x0,_0x1ca24f[_0x379b65(0x228)]&&(_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xed)][_0x379b65(0x1a8)]=LIGHTING_CONFIG[_0x379b65(0x23c)],_0x1ca24f[_0x379b65(0x228)][_0x379b65(0x1ef)]=LIGHTING_CONFIG[_0x379b65(0x18e)],_0x1ca24f['shadow'][_0x379b65(0xf9)]&&(_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xf9)][_0x379b65(0x147)]=-0.5,_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xf9)][_0x379b65(0x17d)]=0.5,_0x1ca24f['shadow'][_0x379b65(0xf9)]['top']=0.5,_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xf9)][_0x379b65(0xbb)]=-0.5,_0x1ca24f['shadow']['camera']['near']=0.1,_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xf9)][_0x379b65(0xe0)]=0xa,_0x1ca24f[_0x379b65(0x228)][_0x379b65(0xf9)][_0x379b65(0x1b9)]()),_0x1ca24f[_0x379b65(0x228)]['map']&&(_0x1ca24f[_0x379b65(0x228)][_0x379b65(0x105)][_0x379b65(0x172)](),_0x1ca24f[_0x379b65(0x228)][_0x379b65(0x105)]=null)));}),slotLight2[_0xcb3687(0xfa)]=new _0x1185f1[(_0xcb3687(0x1e2))](0xffffff,0x0),slotLight2['light'][_0xcb3687(0x134)][_0xcb3687(0x1f9)](0x0,1.41,-1.69),_scene[_0xcb3687(0x210)](slotLight2['light']),_scene['add'](slotLight2[_0xcb3687(0xfa)]['target']),slotLight3[_0xcb3687(0xfa)]=new _0x1185f1['DirectionalLight'](0xffffff,0x0),slotLight3['light'][_0xcb3687(0x134)][_0xcb3687(0x1f9)](LIGHTING_CONFIG[_0xcb3687(0x239)][0x0],LIGHTING_CONFIG['light3_default_pos'][0x1],LIGHTING_CONFIG['light3_default_pos'][0x2]),_scene['add'](slotLight3['light']),_scene[_0xcb3687(0x210)](slotLight3[_0xcb3687(0xfa)][_0xcb3687(0xff)]),slotLight4['light']=new _0x1185f1['DirectionalLight'](0xffffff,0x0),slotLight4[_0xcb3687(0xfa)][_0xcb3687(0x134)][_0xcb3687(0x1f9)](LIGHTING_CONFIG[_0xcb3687(0x1eb)][0x0],LIGHTING_CONFIG[_0xcb3687(0x1eb)][0x1],LIGHTING_CONFIG[_0xcb3687(0x1eb)][0x2]),_scene[_0xcb3687(0x210)](slotLight4[_0xcb3687(0xfa)]),_scene['add'](slotLight4[_0xcb3687(0xfa)][_0xcb3687(0xff)]),loadNativeRGBELoader(_0x1185f1)['then'](_0x82fb57=>{_0x82fb57&&initPMREMLogic(_scene,_renderer,_0x1185f1,_0x82fb57);}));}catch(_0x24237d){log(_0xcb3687(0x1d9)+_0x24237d[_0xcb3687(0x149)]);}},0x64);}});function loadNativeRGBELoader(_0x2c416c){return new Promise(_0x41b8b2=>{const _0x3ab4f5=_0x5c26;if(_0x2c416c[_0x3ab4f5(0x201)]){_0x41b8b2(_0x2c416c[_0x3ab4f5(0x201)]);return;}_0x2c416c['RGBELoader']=class _0x674dc0 extends _0x2c416c[_0x3ab4f5(0x129)]{constructor(_0x27ba08){const _0x93c9b1=_0x3ab4f5;super(_0x27ba08),this['type']=_0x2c416c[_0x93c9b1(0x216)];}['parse'](_0xcd4712){const _0x531e42=_0x3ab4f5,_0x5e3fc3=new Uint8Array(_0xcd4712);let _0xed6e5c=0x0;function _0x8489b(){const _0x5a83ce=_0x5c26;let _0x46d867='';while(_0xed6e5c<_0x5e3fc3[_0x5a83ce(0x141)]){const _0x22a9f8=_0x5e3fc3[_0xed6e5c++];if(_0x22a9f8===0xa)break;if(_0x22a9f8!==0xd)_0x46d867+=String[_0x5a83ce(0x227)](_0x22a9f8);}return _0x46d867;}let _0x1ba1d8=_0x8489b();if(!_0x1ba1d8[_0x531e42(0x1e9)](/^\s*#\?RADIANCE/)&&!_0x1ba1d8[_0x531e42(0x1e9)](/^\s*#\?RGBE/))return null;while(_0x1ba1d8!==''){_0x1ba1d8=_0x8489b();}const _0x1cd40e=_0x8489b(),_0x54d5d7=_0x1cd40e[_0x531e42(0x1e9)](/-Y\s+(\d+)\s+\+X\s+(\d+)/);if(!_0x54d5d7)return null;const _0x5d649d=parseInt(_0x54d5d7[0x1],0xa),_0x442174=parseInt(_0x54d5d7[0x2],0xa),_0x14667b=_0x442174*_0x5d649d,_0x582d41=new Float32Array(_0x14667b*0x4);let _0x258bad=0x0;for(let _0x4ee2e0=0x0;_0x4ee2e0<_0x5d649d;_0x4ee2e0++){if(_0xed6e5c>=_0x5e3fc3['length'])break;const _0x4c67a9=_0x5e3fc3[_0xed6e5c++],_0x5e0ffc=_0x5e3fc3[_0xed6e5c++],_0x2c05ea=_0x5e3fc3[_0xed6e5c++],_0x5e0da9=_0x5e3fc3[_0xed6e5c++];if(_0x4c67a9!==0x2||_0x5e0ffc!==0x2||(_0x2c05ea&0x80)!==0x0){let _0x3d138e=_0x4c67a9,_0x3bbf1d=_0x5e0ffc,_0xb05156=_0x2c05ea,_0xf9d5e1=_0x5e0da9;for(let _0x28c584=0x0;_0x28c584<_0x442174;_0x28c584++){_0x28c584>0x0&&(_0x3d138e=_0x5e3fc3[_0xed6e5c++],_0x3bbf1d=_0x5e3fc3[_0xed6e5c++],_0xb05156=_0x5e3fc3[_0xed6e5c++],_0xf9d5e1=_0x5e3fc3[_0xed6e5c++]);const _0x5c7da4=_0xf9d5e1?Math['pow'](0x2,_0xf9d5e1-0x80-0x8):0x0;_0x582d41[_0x258bad++]=_0x3d138e*_0x5c7da4,_0x582d41[_0x258bad++]=_0x3bbf1d*_0x5c7da4,_0x582d41[_0x258bad++]=_0xb05156*_0x5c7da4,_0x582d41[_0x258bad++]=0x1;}}else{const _0x475d9b=_0x2c05ea<<0x8|_0x5e0da9,_0x453ad5=new Uint8Array(_0x475d9b*0x4);for(let _0x48c1ed=0x0;_0x48c1ed<0x4;_0x48c1ed++){let _0x4b2ada=_0x48c1ed*_0x475d9b;const _0x28dfa3=_0x4b2ada+_0x475d9b;while(_0x4b2ada<_0x28dfa3&&_0xed6e5c<_0x5e3fc3[_0x531e42(0x141)]){const _0x1da471=_0x5e3fc3[_0xed6e5c++];if(_0x1da471>0x80){const _0x2ea0f1=_0x1da471-0x80,_0x4cd2f3=_0x5e3fc3[_0xed6e5c++];for(let _0xad9e76=0x0;_0xad9e76<_0x2ea0f1;_0xad9e76++)_0x453ad5[_0x4b2ada++]=_0x4cd2f3;}else{for(let _0x3b8501=0x0;_0x3b8501<_0x1da471;_0x3b8501++)_0x453ad5[_0x4b2ada++]=_0x5e3fc3[_0xed6e5c++];}}}for(let _0x250cfb=0x0;_0x250cfb<_0x475d9b;_0x250cfb++){const _0x5eac15=_0x453ad5[_0x250cfb],_0x5af491=_0x453ad5[_0x250cfb+_0x475d9b],_0x29462e=_0x453ad5[_0x250cfb+_0x475d9b*0x2],_0x1c42cf=_0x453ad5[_0x250cfb+_0x475d9b*0x3],_0x270b7e=_0x1c42cf?Math[_0x531e42(0x1b6)](0x2,_0x1c42cf-0x80-0x8):0x0;_0x582d41[_0x258bad++]=_0x5eac15*_0x270b7e,_0x582d41[_0x258bad++]=_0x5af491*_0x270b7e,_0x582d41[_0x258bad++]=_0x29462e*_0x270b7e,_0x582d41[_0x258bad++]=0x1;}}}return{'width':_0x442174,'height':_0x5d649d,'data':_0x582d41,'format':_0x2c416c[_0x531e42(0x131)],'type':_0x2c416c['FloatType']};}},_0x41b8b2(_0x2c416c[_0x3ab4f5(0x201)]);});}function initPMREMLogic(_0x54b445,_0x437934,_0x3d7257,_0x135e2c){const _0x4e163e=_0x328feb;try{pmremGenerator=new _0x3d7257[(_0x4e163e(0x14e))](_0x437934),pmremGenerator[_0x4e163e(0x10a)](),new _0x135e2c()['load'](_0x4e163e(0x15a),_0x40904=>{const _0x57dd31=_0x4e163e;_0x40904['mapping']=_0x3d7257['EquirectangularReflectionMapping'],originalEnv=_0x40904;if(envMode===_0x57dd31(0x116))_0x54b445[_0x57dd31(0x1e3)]=_0x40904;},undefined,()=>{});const _0x42c648=document[_0x4e163e(0x1b3)](_0x4e163e(0x124)),_0xbdd9b6=document[_0x4e163e(0x1b3)](_0x4e163e(0xca)),_0x5d94b2=document[_0x4e163e(0x1b3)](_0x4e163e(0x1d1));_0x5d94b2&&_0x5d94b2[_0x4e163e(0x12f)](_0x4e163e(0x121),()=>{const _0x2d9466=_0x4e163e,_0xf055ec=document[_0x2d9466(0x200)](_0x2d9466(0x233));if(_0xf055ec&&_0xf055ec[_0x2d9466(0xde)])try{_0xf055ec['srcObject']['getTracks']()[_0x2d9466(0x10c)](_0xd22629=>_0xd22629[_0x2d9466(0x1cc)]());}catch(_0x394e39){}window[_0x2d9466(0xdc)][_0x2d9466(0x132)]();});let _0x21d81d=![];const _0x426ad8=setTimeout(()=>{const _0x28c274=_0x4e163e;!_0x21d81d&&_0x42c648&&(_0x42c648[_0x28c274(0x16a)]['display']=_0x28c274(0x109));},0x7d0),_0x15e636=setTimeout(()=>{const _0x15438e=_0x4e163e;if(!_0x21d81d){if(_0x42c648)_0x42c648[_0x15438e(0x16a)][_0x15438e(0xd4)]=_0x15438e(0x185);if(_0xbdd9b6)_0xbdd9b6['style'][_0x15438e(0xd4)]=_0x15438e(0x1f5);const _0x3825e8=document[_0x15438e(0x200)]('video');if(_0x3825e8&&_0x3825e8['srcObject'])try{_0x3825e8['srcObject']['getTracks']()['forEach'](_0x8da617=>_0x8da617[_0x15438e(0x1cc)]());}catch(_0x1758f5){}}},0x1f40),_0x56b26a=setInterval(()=>{const _0x2166a0=_0x4e163e,_0x2f57e0=document[_0x2166a0(0x200)](_0x2166a0(0x233));if(_0x2f57e0&&_0x2f57e0[_0x2166a0(0xd6)]>=0x2){clearInterval(_0x56b26a),_0x21d81d=!![],clearTimeout(_0x426ad8),clearTimeout(_0x15e636);if(_0x42c648)_0x42c648[_0x2166a0(0x16a)][_0x2166a0(0xd4)]=_0x2166a0(0x185);if(_0xbdd9b6)_0xbdd9b6[_0x2166a0(0x16a)][_0x2166a0(0xd4)]=_0x2166a0(0x185);const _0x196be9=document[_0x2166a0(0x1b3)](_0x2166a0(0x152)),_0x4f2dde=document[_0x2166a0(0x1b3)](_0x2166a0(0xe7));if(isCrashRecovery){if(_0x196be9)_0x196be9[_0x2166a0(0x16a)][_0x2166a0(0xd4)]=_0x2166a0(0x185);if(_0x4f2dde)_0x4f2dde[_0x2166a0(0x16a)]['display']=_0x2166a0(0x185);window['_tListoClick']=performance['now']();const _0x27517e=document[_0x2166a0(0x1b3)](_0x2166a0(0xab));_0x27517e&&!primerPlatoSpawnIniciado&&(_0x27517e['style'][_0x2166a0(0xd4)]='block',_0x27517e[_0x2166a0(0x16a)][_0x2166a0(0xbf)]='1');if(window[_0x2166a0(0xdf)]&&window['XR8'][_0x2166a0(0xec)])try{window[_0x2166a0(0xdf)]['XrController']['recenter']();}catch(_0x1a3d01){}isCalibrating=!![],calibrationFramesDone=0x0,accumulatedP98Samples[_0x2166a0(0x141)]=0x0,accumulatedAvgLumSamples[_0x2166a0(0x141)]=0x0,accumulatedWarmRatioSamples['length']=0x0;}else _0x196be9&&(_0x196be9[_0x2166a0(0x16a)][_0x2166a0(0xbf)]='1',_0x196be9[_0x2166a0(0x16a)][_0x2166a0(0xf5)]='auto',_0x4f2dde&&(_0x4f2dde[_0x2166a0(0x16a)]['display']=_0x2166a0(0x109),_0x4f2dde[_0x2166a0(0x16a)][_0x2166a0(0xf5)]=_0x2166a0(0x1c9)),!window[_0x2166a0(0x174)]&&(window[_0x2166a0(0x174)]=((performance[_0x2166a0(0xce)]()-window['_t0PageStart'])/0x3e8)[_0x2166a0(0x230)](0x2),window[_0x2166a0(0xea)]()));const _0x5da124=LIGHTING_CONFIG[_0x2166a0(0x19c)],_0x539d95=document[_0x2166a0(0xad)](_0x2166a0(0x11d));_0x539d95[_0x2166a0(0x1a8)]=_0x5da124,_0x539d95[_0x2166a0(0x12a)]=_0x5da124;const _0x38c956=_0x539d95[_0x2166a0(0x196)]('2d',{'willReadFrequently':!![],'alpha':![]});try{_0x38c956[_0x2166a0(0x1b4)](_0x2f57e0,0x0,0x0,_0x5da124,_0x5da124),_0x38c956['getImageData'](0x0,0x0,_0x5da124,_0x5da124);}catch(_0x508cf8){}const _0x5363bd=new _0x3d7257[(_0x2166a0(0x1a2))](_0x539d95);_0x5363bd[_0x2166a0(0x1f8)]=_0x3d7257[_0x2166a0(0x143)];let _0xf7c1a7=0x80,_0x12d326=0.45,_0x25bbdd=0x0,_0x17aa33=0x0,_0x20111a=![];const _0x55972e=new _0x3d7257['Vector3'](),_0x1fe880=new _0x3d7257[(_0x2166a0(0x139))](),_0x5d7c0d=new _0x3d7257[(_0x2166a0(0x139))](),_0x38dce3=new _0x3d7257[(_0x2166a0(0x139))](),_0x34a718=new _0x3d7257[(_0x2166a0(0xd0))](new _0x3d7257['Vector3'](0x0,0x1,0x0),0x0),_0x4d93a6=new _0x3d7257[(_0x2166a0(0x189))](),_0xce1204=(_0x334bfa,_0x4cb3fa,_0x43524c,_0x37c15a)=>{const _0x249428=_0x2166a0;_0x334bfa['copy'](_0x4cb3fa)['addScaledVector'](_0x43524c,_0x37c15a),_0x334bfa[_0x249428(0x141)]()>LIGHTING_CONFIG['max_light_radius']&&_0x334bfa[_0x249428(0x17a)](LIGHTING_CONFIG[_0x249428(0x237)]),_0x334bfa['y']=Math[_0x249428(0x1c0)](LIGHTING_CONFIG[_0x249428(0x13a)],_0x334bfa['y']);},_0x3c581b=(_0x7f69bd,_0x5f302e,_0x59aad6=0x320,_0x3a1aa7=null,_0x510f18=null)=>{const _0x47a301=_0x2166a0;_0x7f69bd['state']=_0x5f302e>0x0?_0x47a301(0x137):_0x47a301(0x113),_0x7f69bd[_0x47a301(0x106)][_0x47a301(0x1a7)]=performance[_0x47a301(0xce)](),_0x7f69bd[_0x47a301(0x106)][_0x47a301(0x130)]=_0x59aad6,_0x7f69bd[_0x47a301(0x106)][_0x47a301(0xe4)]=_0x7f69bd[_0x47a301(0xfa)]?_0x7f69bd['light']['intensity']:0x0,_0x7f69bd[_0x47a301(0x106)][_0x47a301(0x20b)]=_0x5f302e,_0x7f69bd[_0x47a301(0x150)]=_0x5f302e;_0x5f302e>0x0&&(_0x7f69bd['isAnchored']=!![],_0x7f69bd[_0x47a301(0x199)]=_0x5f302e);if(_0x3a1aa7&&_0x7f69bd[_0x47a301(0xfa)])_0x7f69bd[_0x47a301(0xfa)][_0x47a301(0x134)]['copy'](_0x3a1aa7);if(_0x510f18)_0x7f69bd[_0x47a301(0x159)][_0x47a301(0x23d)](_0x510f18);},_0x5d25c8=new Int32Array(0x10),_0x54f9bc=document['getElementById']('readyBtn');_0x54f9bc&&_0x54f9bc[_0x2166a0(0x12f)](_0x2166a0(0x121),_0xd05282=>{const _0x5a56b4=_0x2166a0;_0xd05282[_0x5a56b4(0x140)]();if(isCalibrating||isCalibrated)return;window[_0x5a56b4(0x1ea)]=performance[_0x5a56b4(0xce)]();const _0x282f04=document[_0x5a56b4(0x1b3)](_0x5a56b4(0xab));_0x282f04&&!primerPlatoSpawnIniciado&&(_0x282f04['style'][_0x5a56b4(0xd4)]=_0x5a56b4(0x109),_0x282f04[_0x5a56b4(0x16a)][_0x5a56b4(0xbf)]='1');if(window[_0x5a56b4(0xdf)]&&window[_0x5a56b4(0xdf)]['XrController'])try{window[_0x5a56b4(0xdf)][_0x5a56b4(0xec)][_0x5a56b4(0x194)]();}catch(_0x9d389d){}_0x196be9&&(_0x196be9['style'][_0x5a56b4(0xbf)]='0',setTimeout(()=>{const _0x4f7ff4=_0x5a56b4;_0x196be9['style'][_0x4f7ff4(0xd4)]=_0x4f7ff4(0x185);},0x12c)),isCalibrating=!![],calibrationFramesDone=0x0,accumulatedP98Samples[_0x5a56b4(0x141)]=0x0,accumulatedAvgLumSamples['length']=0x0,accumulatedWarmRatioSamples[_0x5a56b4(0x141)]=0x0;}),setInterval(()=>{const _0x347498=_0x2166a0;try{if(!_0x2f57e0||_0x2f57e0[_0x347498(0xd6)]<0x2||!pmremGenerator)return;const _0x514645=performance[_0x347498(0xce)](),_0x4ba954=Math[_0x347498(0x1c0)](0.001,(_0x514645-lastFrameTime)/0x3e8);lastFrameTime=_0x514645;const _0x382e40=!isDishSwitching&&(isCalibrating||!isIOS&&_0x514645-_0x25bbdd>=LIGHTING_CONFIG[_0x347498(0x13e)]);if(_0x382e40){_0x25bbdd=_0x514645;const _0x397b33=_0x38c956[_0x347498(0xac)](0x0,0x0,_0x5da124,_0x5da124),_0x58de4a=_0x397b33[_0x347498(0x157)],_0x205a6d=Math['floor'](_0x5da124*LIGHTING_CONFIG[_0x347498(0x1ad)]);let _0x20eb51=0x0,_0x3b2c3f=0x0,_0x120b7b=0x0,_0x1f81c1=0x0,_0x3cb8d9=_0x5da124*0.5,_0x382c98=_0x5da124*0.3,_0x5e9d02=0x0,_0x430bbb=0x0,_0x5df101=0x0,_0x2795a6=0x0,_0x206586=_0x5da124,_0x4c05e4=0x0,_0x1dd596=_0x205a6d,_0x32a9c9=0x0,_0x576acc=0x0,_0x156f0e=0x0,_0x3bfd4c=0x0,_0xf9816f=0x0,_0x2aff7d=0x0;const _0x56a4a0=new Int32Array(0x8),_0x33d69e=new Float32Array(0x8),_0x236343=new Float32Array(0x8),_0x554241=new Float32Array(0x8);_0x5d25c8[_0x347498(0x1e0)](0x0);const _0x1f26a5=isCalibrating&&!isCalibrated;for(let _0x38f9a2=0x0;_0x38f9a2<_0x58de4a[_0x347498(0x141)];_0x38f9a2+=0x4){const _0x45e5f9=_0x58de4a[_0x38f9a2],_0xbe481b=_0x58de4a[_0x38f9a2+0x1],_0x465ff3=_0x58de4a[_0x38f9a2+0x2],_0x41ca48=_0x45e5f9*0.299+_0xbe481b*0.587+_0x465ff3*0.114,_0x42fd68=_0x38f9a2/0x4,_0xbae6f6=_0x42fd68%_0x5da124,_0x41e79f=Math[_0x347498(0xf7)](_0x42fd68/_0x5da124);_0x20eb51+=_0x45e5f9,_0x3b2c3f+=_0xbe481b,_0x120b7b+=_0x465ff3,_0x5e9d02++;const _0x57e46f=Math[_0x347498(0x1f3)](0xf,Math[_0x347498(0xf7)](_0x41ca48/0x100*0x10));_0x5d25c8[_0x57e46f]++;_0x41ca48>_0x1f81c1&&(_0x1f81c1=_0x41ca48,_0x3cb8d9=_0xbae6f6,_0x382c98=_0x41e79f);if(_0x41e79f<_0x205a6d){_0x156f0e+=_0x41ca48,_0x3bfd4c++;if(_0x41ca48>=LIGHTING_CONFIG[_0x347498(0x123)]){_0x430bbb++,_0x5df101+=_0xbae6f6,_0x2795a6+=_0x41e79f;if(_0xbae6f6<_0x206586)_0x206586=_0xbae6f6;if(_0xbae6f6>_0x4c05e4)_0x4c05e4=_0xbae6f6;if(_0x41e79f<_0x1dd596)_0x1dd596=_0x41e79f;if(_0x41e79f>_0x32a9c9)_0x32a9c9=_0x41e79f;}}else _0xf9816f+=_0x41ca48,_0x2aff7d++;if(_0x1f26a5){const _0x1dcff9=-0.168736*_0x45e5f9-0.331264*_0xbe481b+0.5*_0x465ff3+0x80,_0x13cf09=0.5*_0x45e5f9-0.418688*_0xbe481b-0.081312*_0x465ff3+0x80;_0x41ca48>=0xf&&_0x13cf09>_0x1dcff9+0x4&&_0x576acc++;const _0x1bd5ec=(_0x45e5f9>0x64?0x1:0x0)<<0x2|(_0xbe481b>0x64?0x1:0x0)<<0x1|(_0x465ff3>0x64?0x1:0x0);_0x56a4a0[_0x1bd5ec]++,_0x33d69e[_0x1bd5ec]+=_0xbae6f6*_0x41ca48,_0x236343[_0x1bd5ec]+=_0x41e79f*_0x41ca48,_0x554241[_0x1bd5ec]+=_0x41ca48;}}const _0x4f305b=_0x5e9d02>0x0?(_0x20eb51*0.299+_0x3b2c3f*0.587+_0x120b7b*0.114)/_0x5e9d02:0x0,_0x4f4713=_0x3bfd4c>0x0?_0x156f0e/_0x3bfd4c:_0x4f305b,_0x342ba2=_0x2aff7d>0x0?_0xf9816f/_0x2aff7d:_0x4f305b,_0x53b4b0=previousAvgLum-_0x4f305b;previousAvgLum=_0x4f305b;let _0x46932f=_0x4f305b,_0x4e3dac=_0x4f305b,_0x4f1b18=0x0;const _0x4938e2=_0x5e9d02*0.9,_0x5cc8a9=_0x5e9d02*0.98;for(let _0xb5dfc1=0x0;_0xb5dfc1<0x10;_0xb5dfc1++){_0x4f1b18+=_0x5d25c8[_0xb5dfc1];if(_0x4f1b18>=_0x4938e2&&_0x46932f===_0x4f305b)_0x46932f=(_0xb5dfc1+0.5)/0x10*0xff;if(_0x4f1b18>=_0x5cc8a9){_0x4e3dac=(_0xb5dfc1+0.5)/0x10*0xff;break;}}const _0x15ccc9=_0x5e9d02>0x0?_0x576acc/_0x5e9d02:0x0;let _0x555719=0x0,_0xbdbc29=0x0;if(_0x1f26a5){for(let _0x4c131f=0x0;_0x4c131f<0x8;_0x4c131f++){_0x56a4a0[_0x4c131f]>_0xbdbc29&&(_0xbdbc29=_0x56a4a0[_0x4c131f],_0x555719=_0x4c131f);}if(_0xbdbc29>_0x5e9d02*0.7){const _0x4b39dc=_0x555719!==0x0&&_0x555719!==0x7;_0x20111a=_0x4b39dc;}else _0x20111a=![];}if(isCalibrating&&!isCalibrated){accumulatedP98Samples[_0x347498(0x197)](_0x4e3dac),accumulatedAvgLumSamples['push'](_0x4f305b),accumulatedWarmRatioSamples[_0x347498(0x197)](_0x15ccc9),calibrationFramesDone++;if(calibrationFramesDone>=LIGHTING_CONFIG['calibration_frames_target']){isCalibrating=![],isCalibrated=!![];const _0x30d6a1=_0x127ceb=>{const _0x377593=_0x347498;if(_0x127ceb[_0x377593(0x141)]<=0x2)return _0x127ceb[_0x377593(0xee)]((_0x23657f,_0x919737)=>_0x23657f+_0x919737,0x0)/_0x127ceb['length'];const _0x22cb74=[..._0x127ceb][_0x377593(0x164)]((_0x43d34c,_0xf5ee9f)=>_0x43d34c-_0xf5ee9f),_0x4e251f=_0x22cb74[_0x377593(0x1a3)](0x1,_0x22cb74[_0x377593(0x141)]-0x1);return _0x4e251f[_0x377593(0xee)]((_0x1e76ff,_0x325a71)=>_0x1e76ff+_0x325a71,0x0)/_0x4e251f[_0x377593(0x141)];},_0x1f5ba7=_0x30d6a1(accumulatedP98Samples),_0x2c9f5b=_0x30d6a1(accumulatedAvgLumSamples),_0x1083af=_0x30d6a1(accumulatedWarmRatioSamples),_0x4debd7=Math['max'](0x0,Math[_0x347498(0x1f3)](0x1,0x1-(_0x1f5ba7-0x6e)/(0xe1-0x6e))),_0x2c25cc=Math[_0x347498(0x1c0)](0x0,Math[_0x347498(0x1f3)](0x1,0x1-(_0x2c9f5b-0x32)/(0x9b-0x32))),_0x3d76ae=_0x2c9f5b<0x4b,_0x5510e0=!_0x3d76ae&&_0x1083af>=0.7;if(_0x5510e0){const _0x305bd8=0.4,_0x6c5421=0.6,_0x2315af=0.75;environmentFactor=_0x2c25cc*0.7*_0x6c5421+_0x4debd7*0.3*_0x6c5421+_0x2315af*_0x305bd8;}else{const _0x3c5acd=_0x3d76ae?0x0:0.1,_0x4e3042=0x1-_0x3c5acd;environmentFactor=_0x2c25cc*0.7*_0x4e3042+_0x4debd7*0.3*_0x4e3042+_0x2c25cc*_0x3c5acd;}let _0x3bda67=_0x347498(0x153);if(_0x1f5ba7>0xee&&_0x2c9f5b>0x94)environmentFactor=0x0,_0x3bda67=_0x347498(0x18f);else{if(_0x2c9f5b>0xa4||environmentFactor<0.3&&_0x2c9f5b>=0x58)environmentFactor=Math[_0x347498(0x1c0)](0.25,Math['min'](environmentFactor,0.4)),_0x3bda67='DIA_NORMAL';else environmentFactor<0.65||_0x1f5ba7>0xaf&&_0x2c9f5b>=0x4b?(environmentFactor=Math[_0x347498(0x1c0)](0.6,Math[_0x347498(0x1f3)](environmentFactor,0.75)),_0x3bda67=_0x347498(0xc2)):(environmentFactor=Math[_0x347498(0x1c0)](0.85,0x1),_0x3bda67='PENUMBRA');}environmentFactor=Math[_0x347498(0x1c0)](0x0,Math[_0x347498(0x1f3)](0x1,environmentFactor)),currentDirectBudget=_0x3d7257[_0x347498(0x213)][_0x347498(0x1ff)](LIGHTING_CONFIG[_0x347498(0x225)],LIGHTING_CONFIG[_0x347498(0x14f)],environmentFactor),currentPmremMult=_0x3d7257[_0x347498(0x213)]['lerp'](LIGHTING_CONFIG[_0x347498(0x1d6)],LIGHTING_CONFIG[_0x347498(0x1e4)],environmentFactor),currentPedestal=_0x3d7257['MathUtils'][_0x347498(0x1ff)](LIGHTING_CONFIG['day_pedestal'],LIGHTING_CONFIG[_0x347498(0xcd)],environmentFactor);if(_0x3bda67==='DIRECCIONAL_FUERTE')currentSpecularLevel=0x1;else{if(_0x3bda67==='DIA_NORMAL')currentSpecularLevel=0.8;else _0x3bda67===_0x347498(0xc2)?currentSpecularLevel=0.5:currentSpecularLevel=0.27;}actualizarNivelEspecularGlobal(currentSpecularLevel);const _0x1cd3e4=_0x3d7257[_0x347498(0x213)][_0x347498(0x1ff)](LIGHTING_CONFIG[_0x347498(0x18e)],LIGHTING_CONFIG[_0x347498(0x1cb)],environmentFactor);_baseLight1&&_baseLight1[_0x347498(0x228)]&&(_baseLight1[_0x347498(0x228)][_0x347498(0x1ef)]=_0x1cd3e4);actualizarHUDTelemetria(_0x3bda67,_0x1f5ba7,_0x2c9f5b,_0x1083af*0x64);_scene&&window['aplicarAjustesSceneViewer']&&window[_0x347498(0x180)](_scene);if(_activeCamera){let _0x2a60b5=_0x5da124*0.5,_0x14d22e=_0x5da124*0.4;_0xbdbc29>_0x5e9d02*0.2&&_0x554241[_0x555719]>0x0&&(_0x2a60b5=_0x33d69e[_0x555719]/_0x554241[_0x555719],_0x14d22e=_0x236343[_0x555719]/_0x554241[_0x555719]);const _0xa3489e=_0x2a60b5/_0x5da124*0x2-0x1,_0x1789f6=0x1-_0x14d22e/_0x5da124*0x2;_activeCamera['getWorldPosition'](_0x1fe880),_0x55972e[_0x347498(0x1f9)](_0xa3489e,_0x1789f6,0.5),_0x55972e['unproject'](_activeCamera),_0x5d7c0d['subVectors'](_0x55972e,_0x1fe880)[_0x347498(0xf8)]();const _0x5b6cea=LIGHTING_CONFIG[_0x347498(0x11a)],_0x197ee7=LIGHTING_CONFIG[_0x347498(0x15b)],_0x399b95=Math[_0x347498(0x1c0)](LIGHTING_CONFIG[_0x347498(0x13a)],Math['sin'](_0x5b6cea)*_0x197ee7),_0x48f960=Math[_0x347498(0x22e)](_0x5b6cea)*_0x197ee7,_0x5924ef=Math['hypot'](_0x5d7c0d['x'],_0x5d7c0d['z'])||0x1,_0x220cf7=new _0x3d7257['Vector3'](_0x5d7c0d['x']/_0x5924ef*_0x48f960,_0x399b95,_0x5d7c0d['z']/_0x5924ef*_0x48f960);_0x3c581b(slotLight2,currentDirectBudget*LIGHTING_CONFIG[_0x347498(0x1ac)][0x0],LIGHTING_CONFIG[_0x347498(0x16f)],_0x220cf7,_0x220cf7[_0x347498(0xb1)]()['normalize']()),initialLightPlaced=!![],actualizarContadorLuces();if(isIOS){const _0x2e9772=new _0x3d7257[(_0x347498(0x139))](LIGHTING_CONFIG[_0x347498(0x239)][0x0],LIGHTING_CONFIG[_0x347498(0x239)][0x1],LIGHTING_CONFIG[_0x347498(0x239)][0x2]);_0x3c581b(slotLight3,currentDirectBudget*0.38,LIGHTING_CONFIG[_0x347498(0x16f)],_0x2e9772,_0x2e9772[_0x347498(0xb1)]()[_0x347498(0xf8)]()),totalLightsDetected=0x2,actualizarContadorLuces();}if(!isObjectPlaced&&_ecsWorld){isObjectPlaced=!![],_0x55972e[_0x347498(0x1f9)](0x0,-0.25,0.5),_0x55972e[_0x347498(0x208)](_activeCamera);const _0x3a741d=_0x55972e[_0x347498(0xdd)](_0x1fe880)[_0x347498(0xf8)]();_0x4d93a6[_0x347498(0x1f9)](_0x1fe880,_0x3a741d);const _0x430080=new _0x3d7257[(_0x347498(0x139))]();if(_0x4d93a6['intersectPlane'](_0x34a718,_0x430080)){const _0x579ec8=new _0x3d7257['Vector3'](_0x430080['x']-_0x1fe880['x'],0x0,_0x430080['z']-_0x1fe880['z'])['normalize']();_0x430080[_0x347498(0x1b7)](_0x579ec8,0.05),_0x430080['y']=0x0;}else{const _0x4e7f37=new _0x3d7257[(_0x347498(0x139))]();_activeCamera[_0x347498(0x1ec)](_0x4e7f37),_0x430080[_0x347498(0x1f9)](_0x1fe880['x']+_0x4e7f37['x']*0.45,0x0,_0x1fe880['z']+_0x4e7f37['z']*0.45);}try{_ecsWorld[_0x347498(0x195)][_0x347498(0x169)](_ecsWorld[_0x347498(0x195)][_0x347498(0x20d)],'auto-place-dish',{'worldPosition':{'x':_0x430080['x'],'y':_0x430080['y'],'z':_0x430080['z']}});}catch(_0x31956c){log(_0x347498(0x1ee)+_0x31956c[_0x347498(0x149)]);}}}if(_0x4f2dde)_0x4f2dde[_0x347498(0x16a)][_0x347498(0xd4)]=_0x347498(0x185);}}const _0x780721=_0x342ba2<0x41&&_0x4f4713>_0x342ba2+0x19,_0x21e5b2=_0x780721?_0x4f4713:_0x4f305b,_0x18c8fa=_0x21e5b2*0.7+_0x46932f*0.3;_0xf7c1a7=_0x18c8fa;const _0x3ae512=Math['max'](0.001,Math[_0x347498(0x1f3)](0x1,_0xf7c1a7/0xff));_0x12d326=_0x3ae512*currentPmremMult*LIGHTING_CONFIG['master_exposure_scale'];if(_0x18c8fa<0x37)_0x12d326*=1.15;else _0x18c8fa>0xaf&&(_0x12d326*=0.9);if(isNaN(_0x12d326))_0x12d326=0.45;if(initialLightPlaced&&!detectionPermanentlyStopped&&_activeCamera&&!isIOS){const _0x36cf8c=_0x430bbb>0x0?_0x5df101/_0x430bbb:_0x3cb8d9,_0x4d35ba=_0x430bbb>0x0?_0x2795a6/_0x430bbb:_0x382c98,_0x4ec0a4=(_0x3a4b56,_0x38c450)=>{const _0x5cd9af=_0x347498,_0x426c04=Math['max'](0x0,Math[_0x5cd9af(0x1f3)](_0x5da124-0x1,Math[_0x5cd9af(0xf7)](_0x3a4b56))),_0x294bf=Math['max'](0x0,Math[_0x5cd9af(0x1f3)](_0x5da124-0x1,Math[_0x5cd9af(0xf7)](_0x38c450))),_0x434a83=(_0x294bf*_0x5da124+_0x426c04)*0x4;return _0x58de4a[_0x434a83]*0.299+_0x58de4a[_0x434a83+0x1]*0.587+_0x58de4a[_0x434a83+0x2]*0.114;},_0x30283b=LIGHTING_CONFIG[_0x347498(0x22a)],_0x2f8378=_0x4ec0a4(_0x36cf8c,_0x4d35ba),_0x498cb7=_0x430bbb>0x0?_0x4c05e4+_0x30283b:_0x36cf8c+_0x30283b,_0x396f1a=_0x430bbb>0x0?_0x206586-_0x30283b:_0x36cf8c-_0x30283b,_0x23c499=_0x430bbb>0x0?_0x32a9c9+_0x30283b:_0x4d35ba+_0x30283b,_0x3d83f9=_0x430bbb>0x0?_0x1dd596-_0x30283b:_0x4d35ba-_0x30283b;let _0x2974af=0x0;if(_0x2f8378-_0x4ec0a4(_0x498cb7,_0x4d35ba)>=LIGHTING_CONFIG[_0x347498(0x12c)])_0x2974af++;if(_0x2f8378-_0x4ec0a4(_0x396f1a,_0x4d35ba)>=LIGHTING_CONFIG[_0x347498(0x12c)])_0x2974af++;if(_0x2f8378-_0x4ec0a4(_0x36cf8c,_0x23c499)>=LIGHTING_CONFIG[_0x347498(0x12c)])_0x2974af++;if(_0x2f8378-_0x4ec0a4(_0x36cf8c,_0x3d83f9)>=LIGHTING_CONFIG[_0x347498(0x12c)])_0x2974af++;const _0x448261=_0x2974af>=0x2,_0xb252e7=_0x430bbb>=LIGHTING_CONFIG[_0x347498(0x17c)],_0x5e6142=_0x2f8378-_0x4f305b,_0x3dbad6=_0x5e6142>=LIGHTING_CONFIG['contrast_delta_threshold']||_0x53b4b0>=LIGHTING_CONFIG[_0x347498(0x1d2)],_0x30827b=_0x4d35ba<_0x205a6d&&_0xb252e7&&_0x448261&&_0x3dbad6;if(_0x30827b){const _0x1c46fe=_0x36cf8c/_0x5da124*0x2-0x1,_0x1c4767=0x1-_0x4d35ba/_0x5da124*0x2;_activeCamera[_0x347498(0x10e)](_0x1fe880),_0x55972e[_0x347498(0x1f9)](_0x1c46fe,_0x1c4767,0.5),_0x55972e[_0x347498(0x208)](_activeCamera),_0x5d7c0d[_0x347498(0x1fc)](_0x55972e,_0x1fe880)['normalize'](),_0xce1204(_0x38dce3,_0x1fe880,_0x5d7c0d,LIGHTING_CONFIG[_0x347498(0x15b)]);let _0x114ef7=![];carruselSlots[_0x347498(0x10c)](_0x39ca9c=>{const _0x45c5e0=_0x347498;_0x39ca9c[_0x45c5e0(0x111)]&&_0x39ca9c[_0x45c5e0(0x148)]!=='fading_out'&&(_0x5d7c0d[_0x45c5e0(0x10f)](_0x39ca9c[_0x45c5e0(0x159)])<LIGHTING_CONFIG['min_separation_angle']&&(_0x114ef7=!![]));});if(!_0x114ef7){candidateDebounce[_0x347498(0x118)]&&Math[_0x347498(0x204)](candidateDebounce[_0x347498(0x1bf)]-_0x36cf8c)<0x10&&Math['abs'](candidateDebounce[_0x347498(0x203)]-_0x4d35ba)<0x10?candidateDebounce[_0x347498(0xd9)]++:(candidateDebounce[_0x347498(0x118)]=!![],candidateDebounce[_0x347498(0x1bf)]=_0x36cf8c,candidateDebounce[_0x347498(0x203)]=_0x4d35ba,candidateDebounce[_0x347498(0xd9)]=0x1,candidateDebounce['dir'][_0x347498(0x23d)](_0x5d7c0d));if(candidateDebounce[_0x347498(0xd9)]>=LIGHTING_CONFIG[_0x347498(0x1fd)]){candidateDebounce[_0x347498(0x118)]=![],candidateDebounce['consecutiveCycles']=0x0;if(!slotLight3[_0x347498(0x111)]&&slotLight3[_0x347498(0x148)]===_0x347498(0x155))_0x3c581b(slotLight2,currentDirectBudget*LIGHTING_CONFIG[_0x347498(0x120)][0x0],LIGHTING_CONFIG[_0x347498(0x16f)]),_0x3c581b(slotLight3,currentDirectBudget*LIGHTING_CONFIG[_0x347498(0x120)][0x1],LIGHTING_CONFIG[_0x347498(0x16f)],_0x38dce3,_0x5d7c0d),totalRealLightsAnchored=0x1,totalLightsDetected=0x2,actualizarContadorLuces();else!slotLight4['isAnchored']&&slotLight4[_0x347498(0x148)]==='idle'&&(_0x3c581b(slotLight2,0x0,LIGHTING_CONFIG[_0x347498(0x16f)]),_0x3c581b(slotLight3,currentDirectBudget*LIGHTING_CONFIG[_0x347498(0x126)][0x0],LIGHTING_CONFIG[_0x347498(0x16f)]),_0x3c581b(slotLight4,currentDirectBudget*LIGHTING_CONFIG[_0x347498(0x126)][0x1],LIGHTING_CONFIG[_0x347498(0x16f)],_0x38dce3,_0x5d7c0d),totalRealLightsAnchored=0x2,totalLightsDetected=0x3,actualizarContadorLuces(),detectionPermanentlyStopped=!![]);}}else candidateDebounce[_0x347498(0x118)]=![],candidateDebounce[_0x347498(0xd9)]=0x0;}}}const _0x29c3ca=!isDishSwitching&&_0x514645-_0x17aa33>=LIGHTING_CONFIG['pmrem_interval_ms'];if(_0x29c3ca){_0x17aa33=_0x514645;_0x20111a?_0x38c956['filter']=_0x347498(0x107):_0x38c956[_0x347498(0x1c7)]=_0x347498(0x185);_0x38c956[_0x347498(0x103)]=LIGHTING_CONFIG[_0x347498(0x17e)],_0x38c956[_0x347498(0x1b4)](_0x2f57e0,0x0,0x0,_0x5da124,_0x5da124),_0x38c956[_0x347498(0x103)]=0x1,_0x38c956[_0x347498(0x1c7)]=_0x347498(0x185),_0x5363bd[_0x347498(0x167)]=!![];const _0x400daf=cameraRT;cameraRT=pmremGenerator[_0x347498(0x21c)](_0x5363bd);if(envMode===_0x347498(0x1a1))_0x54b445[_0x347498(0x1e3)]=cameraRT['texture'];if(_0x400daf)_0x400daf[_0x347498(0x172)]();}_activeCamera&&(_activeCamera[_0x347498(0x1ec)](_0x5d7c0d),_activeCamera[_0x347498(0x10e)](_0x1fe880));carruselSlots[_0x347498(0x10c)](_0x584078=>{const _0x45b1fa=_0x347498;if(!_0x584078['light'])return;_0x584078[_0x45b1fa(0xfa)][_0x45b1fa(0xff)][_0x45b1fa(0x134)][_0x45b1fa(0x1f9)](0x0,0x0,0x0);if(_0x584078[_0x45b1fa(0x148)]===_0x45b1fa(0x137)||_0x584078[_0x45b1fa(0x148)]===_0x45b1fa(0x113)){const _0x4b0358=_0x514645-_0x584078['transition']['startTime'],_0x4cf0ee=Math[_0x45b1fa(0x1f3)](0x1,_0x4b0358/_0x584078[_0x45b1fa(0x106)][_0x45b1fa(0x130)]);_0x584078['light']['intensity']=_0x3d7257['MathUtils'][_0x45b1fa(0x1ff)](_0x584078[_0x45b1fa(0x106)]['startIntensity'],_0x584078[_0x45b1fa(0x106)][_0x45b1fa(0x20b)],_0x4cf0ee),_0x4cf0ee>=0x1&&(_0x584078[_0x45b1fa(0x106)][_0x45b1fa(0x20b)]<=0x0?(_0x584078['state']=_0x45b1fa(0x155),_0x584078[_0x45b1fa(0x111)]=![],_0x584078[_0x45b1fa(0xfa)][_0x45b1fa(0x1d5)]=0x0):(_0x584078['state']=_0x45b1fa(0x118),_0x584078[_0x45b1fa(0x199)]=_0x584078[_0x45b1fa(0x106)][_0x45b1fa(0x20b)]));}else{if(_0x584078[_0x45b1fa(0x148)]==='active'){const _0x8c9187=_activeCamera?_0x5d7c0d[_0x45b1fa(0x10f)](_0x584078[_0x45b1fa(0x159)])<LIGHTING_CONFIG[_0x45b1fa(0x1f0)]:!![],_0x55f2cb=_0x8c9187?_0x584078[_0x45b1fa(0x199)]:_0x584078['anchoredIntensity']*LIGHTING_CONFIG[_0x45b1fa(0x1c1)],_0x1326e7=0x3e8/LIGHTING_CONFIG[_0x45b1fa(0x16f)],_0xccce90=0x1-Math[_0x45b1fa(0xe9)](-_0x1326e7*_0x4ba954);_0x584078[_0x45b1fa(0xfa)]['intensity']+=(_0x55f2cb-_0x584078['light']['intensity'])*_0xccce90;}else _0x584078[_0x45b1fa(0x148)]===_0x45b1fa(0x155)&&(_0x584078[_0x45b1fa(0xfa)][_0x45b1fa(0x1d5)]=0x0);}});const _0x52e303=0x1-Math[_0x347498(0xe9)](-LIGHTING_CONFIG[_0x347498(0xfd)]*_0x4ba954);if(isNaN(_0x437934['toneMappingExposure']))_0x437934['toneMappingExposure']=0x1;_0x437934[_0x347498(0x168)]+=(_0x12d326-_0x437934[_0x347498(0x168)])*_0x52e303;}catch(_0x5ed3fc){}},0x32);}},0x1f4);}catch(_0x254dc4){log('Error\x20PMREM\x20nativo:\x20'+_0x254dc4[_0x4e163e(0x149)]);}}if(window[_0x328feb(0xc5)]){const _i=ecs[_0x328feb(0x112)][_0x328feb(0x21b)];ecs[_0x328feb(0x112)][_0x328feb(0x21b)]=_0x14597c=>{const _0x354cc3=_0x328feb;for(const _0x32634e in _0x14597c[_0x354cc3(0x11c)]){const _0x4bd3ec=_0x14597c['objects'][_0x32634e];if(_0x4bd3ec['name']===_0x354cc3(0x108)){if(_0x4bd3ec[_0x354cc3(0xfa)])_0x4bd3ec['light'][_0x354cc3(0x1d5)]=0x0;}_0x4bd3ec['name']===_0x354cc3(0x114)&&(_0x4bd3ec['scale']=[1.01,1.01,1.01]),_0x4bd3ec[_0x354cc3(0x1e5)]===_0x354cc3(0x205)&&(_0x4bd3ec[_0x354cc3(0x136)]=_0x4bd3ec['components']||{},_0x4bd3ec[_0x354cc3(0x136)][_0x354cc3(0x20c)]={'id':_0x354cc3(0x20c),'name':_0x354cc3(0x177),'parameters':{}},_0x4bd3ec[_0x354cc3(0xf9)]&&_0x4bd3ec['camera']['xr']&&(_0x4bd3ec[_0x354cc3(0xf9)]['xr']['audio']=![]));}return _i[_0x354cc3(0x10b)](ecs[_0x354cc3(0x112)],_0x14597c);};}window[_0x328feb(0x1fb)]=function(){const _0xf39985=_0x328feb,_0xe3252b=document['getElementById'](_0xf39985(0xc6));if(!_scene)return;if(envMode==='hdr'){if(cameraRT)_scene[_0xf39985(0x1e3)]=cameraRT[_0xf39985(0xdb)];envMode='cam';if(_0xe3252b)_0xe3252b[_0xf39985(0x198)]=_0xf39985(0x192);}else{if(envMode===_0xf39985(0x1a1)){_scene[_0xf39985(0x1e3)]=null,envMode=_0xf39985(0x188);if(_0xe3252b)_0xe3252b['innerText']=_0xf39985(0xa8);}else{if(originalEnv){_scene[_0xf39985(0x1e3)]=originalEnv,envMode='hdr';if(_0xe3252b)_0xe3252b[_0xf39985(0x198)]='Env:\x20HDR';}else{if(cameraRT){_scene[_0xf39985(0x1e3)]=cameraRT[_0xf39985(0xdb)],envMode=_0xf39985(0x1a1);if(_0xe3252b)_0xe3252b[_0xf39985(0x198)]=_0xf39985(0x192);}else{_scene[_0xf39985(0x1e3)]=null,envMode=_0xf39985(0x188);if(_0xe3252b)_0xe3252b['innerText']=_0xf39985(0xa8);}}}}};const menuConfig=window[_0x328feb(0x1f6)]||{'platos':[],'moneda':'€'},rawPlatos=menuConfig[_0x328feb(0xda)]||[],totalToDisplay=menuConfig[_0x328feb(0x156)]?Math[_0x328feb(0x1f3)](menuConfig[_0x328feb(0x156)],rawPlatos['length']):rawPlatos['length'],_dishesConfig=rawPlatos[_0x328feb(0x1a3)](0x0,totalToDisplay),_modelsList=_dishesConfig[_0x328feb(0x141)]>0x0?_dishesConfig[_0x328feb(0x105)](_0x148158=>_0x148158['archivoGLB']):[_0x328feb(0x128),_0x328feb(0x104),'Plato_03.glb','Plato_04.glb','Plato_05.glb',_0x328feb(0x1f2),_0x328feb(0x15d),_0x328feb(0x1d7),_0x328feb(0x1dd),_0x328feb(0xd5),'Plato_11.glb',_0x328feb(0x224),_0x328feb(0x12b),'Plato_14.glb','Plato_15.glb'],symbol=menuConfig[_0x328feb(0x101)]||'€',_dishesData=_dishesConfig['length']>0x0?_dishesConfig[_0x328feb(0x105)](_0x5c0779=>({'num':_0x5c0779['id'],'name':_0x5c0779[_0x328feb(0xb6)],'price':''+_0x5c0779[_0x328feb(0x1e1)]+symbol,'desc':_0x5c0779[_0x328feb(0xb7)]})):[{'num':'01','name':_0x328feb(0x186),'price':_0x328feb(0x1fe),'desc':_0x328feb(0x146)}];let currentDishIndex=0x0;const savedIdx=sessionStorage[_0x328feb(0x12e)](_0x328feb(0x1de));savedIdx!==null&&!isNaN(parseInt(savedIdx))&&(currentDishIndex=parseInt(savedIdx));const prevDishBtn=document[_0x328feb(0x1b3)]('prevDishBtn'),nextDishBtn=document['getElementById']('nextDishBtn'),cambiarPlatoAR=_0x1e4ae9=>{const _0x4bf867=_0x328feb;prevDishBtn[_0x4bf867(0x221)]=!![],nextDishBtn[_0x4bf867(0x221)]=!![],prevDishBtn[_0x4bf867(0x16a)][_0x4bf867(0xf5)]=_0x4bf867(0x185),nextDishBtn['style'][_0x4bf867(0xf5)]=_0x4bf867(0x185),prevDishBtn['style'][_0x4bf867(0xd4)]=_0x4bf867(0x185),nextDishBtn['style'][_0x4bf867(0xd4)]=_0x4bf867(0x185),prevDishBtn['style'][_0x4bf867(0xbf)]='0',nextDishBtn[_0x4bf867(0x16a)][_0x4bf867(0xbf)]='0';const _0x2ca74a=document[_0x4bf867(0x1b3)](_0x4bf867(0x162));_0x2ca74a&&(_0x2ca74a[_0x4bf867(0x16a)][_0x4bf867(0xd4)]=_0x4bf867(0x185),_0x2ca74a[_0x4bf867(0x16a)]['opacity']='0',_0x2ca74a[_0x4bf867(0x16a)][_0x4bf867(0xf5)]=_0x4bf867(0x185)),isDishSwitching=!![],currentDishIndex=(currentDishIndex+_0x1e4ae9+_modelsList[_0x4bf867(0x141)])%_modelsList[_0x4bf867(0x141)],sessionStorage[_0x4bf867(0x14c)](_0x4bf867(0x1de),currentDishIndex),sessionStorage[_0x4bf867(0x14c)](_0x4bf867(0x15c),'1'),actualizarDatosCardAR(),requestAnimationFrame(()=>{const _0x50692c=_0x4bf867;_ecsWorld&&_ecsWorld[_0x50692c(0x195)]['dispatch'](_ecsWorld[_0x50692c(0x195)][_0x50692c(0x20d)],_0x50692c(0x1da),{'modelSrc':_modelsList[currentDishIndex]});});};prevDishBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>cambiarPlatoAR(-0x1)),nextDishBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>cambiarPlatoAR(0x1));const arCardModal=document[_0x328feb(0x1b3)](_0x328feb(0xeb)),infoDishBtn=document[_0x328feb(0x1b3)](_0x328feb(0x22d)),closeArCardBtn=document['getElementById'](_0x328feb(0x122)),arCardNumber=document[_0x328feb(0x1b3)](_0x328feb(0x1a9)),arCardTitle=document['getElementById'](_0x328feb(0x23b)),arCardDesc=document['getElementById']('arCardDesc'),arCardPrice=document['getElementById']('arCardPrice'),captureContainer=document[_0x328feb(0x1b3)](_0x328feb(0x162)),actualizarDatosCardAR=()=>{const _0x1fb86d=_0x328feb,_0xd4e710=_dishesData[currentDishIndex]||_dishesData[0x0];if(arCardNumber)arCardNumber['innerText']=_0xd4e710[_0x1fb86d(0x142)];if(arCardTitle)arCardTitle[_0x1fb86d(0x198)]=_0xd4e710['name'];if(arCardDesc)arCardDesc[_0x1fb86d(0x232)]=_0xd4e710['desc'];if(arCardPrice)arCardPrice[_0x1fb86d(0x198)]=_0xd4e710[_0x1fb86d(0x19d)];},abrirCardAR=()=>{const _0x22f5f5=_0x328feb;actualizarDatosCardAR(),arCardModal[_0x22f5f5(0x16a)]['display']=_0x22f5f5(0x109),requestAnimationFrame(()=>{const _0x17fc60=_0x22f5f5;arCardModal['classList'][_0x17fc60(0x210)](_0x17fc60(0x166));}),captureContainer&&(captureContainer[_0x22f5f5(0x16a)]['opacity']='0',captureContainer[_0x22f5f5(0x16a)][_0x22f5f5(0xf5)]='none');},cerrarCardAR=()=>{const _0x9345f0=_0x328feb;arCardModal[_0x9345f0(0x1f7)][_0x9345f0(0x1df)](_0x9345f0(0x166)),setTimeout(()=>{const _0x11db8b=_0x9345f0;arCardModal[_0x11db8b(0x16a)][_0x11db8b(0xd4)]=_0x11db8b(0x185);},0x15e),captureContainer&&(captureContainer[_0x9345f0(0x16a)][_0x9345f0(0xbf)]='1',captureContainer['style'][_0x9345f0(0xf5)]='auto');};if(infoDishBtn)infoDishBtn[_0x328feb(0x12f)](_0x328feb(0x121),abrirCardAR);if(closeArCardBtn)closeArCardBtn[_0x328feb(0x12f)]('click',cerrarCardAR);const arGestureHint=document[_0x328feb(0x1b3)](_0x328feb(0xfb));let hasInteractedWithAR=sessionStorage[_0x328feb(0x12e)]('ar_gesture_dismissed')==='1',arHintTimer1=null,arHintTimer2=null,arHintTimer3=null,arHintTimer4=null;window[_0x328feb(0xf4)]=function(){const _0x312778=_0x328feb;if(hasInteractedWithAR)return;hasInteractedWithAR=!![];try{sessionStorage[_0x312778(0x14c)](_0x312778(0x214),'1');}catch(_0x207a9a){}clearTimeout(arHintTimer1),clearTimeout(arHintTimer2),clearTimeout(arHintTimer3),clearTimeout(arHintTimer4),arGestureHint&&(arGestureHint[_0x312778(0x1f7)][_0x312778(0x1df)](_0x312778(0x1ab)),setTimeout(()=>arGestureHint['remove'](),0x190));},window['iniciarHintGestosAR']=function(){const _0x443c84=_0x328feb;if(hasInteractedWithAR||!arGestureHint){if(arGestureHint)arGestureHint[_0x443c84(0x1df)]();return;}arHintTimer1=setTimeout(()=>{const _0x99da43=_0x443c84;arGestureHint[_0x99da43(0x1f7)][_0x99da43(0x210)]('visible'),arHintTimer2=setTimeout(()=>{const _0x2bb537=_0x99da43;arGestureHint[_0x2bb537(0x1f7)][_0x2bb537(0x1df)](_0x2bb537(0x1ab)),arHintTimer3=setTimeout(()=>{const _0x5e7a2c=_0x2bb537;arGestureHint['classList'][_0x5e7a2c(0x210)](_0x5e7a2c(0x1ab)),arHintTimer4=setTimeout(()=>{const _0x5edb9b=_0x5e7a2c;arGestureHint[_0x5edb9b(0x1f7)][_0x5edb9b(0x1df)](_0x5edb9b(0x1ab)),hasInteractedWithAR=!![];try{sessionStorage[_0x5edb9b(0x14c)](_0x5edb9b(0x214),'1');}catch(_0x25a8f0){}setTimeout(()=>arGestureHint['remove'](),0x190);},0xbb8);},0x1770);},0xbb8);},0xbb8);},window[_0x328feb(0x12f)](_0x328feb(0x133),_0x316a5a=>{const _0x2c241c=_0x328feb,_0x23afd4=_0x2c241c(0xd1)+'#nextDishBtn,\x20#mediaViewerModal,\x20#readyBtn,\x20#infoDishBtn,\x20#arCardModal';if(_0x316a5a[_0x2c241c(0xff)][_0x2c241c(0x21d)](_0x23afd4))return;isObjectPlaced&&window[_0x2c241c(0xf4)]();},{'passive':!![]});const sessionCapturedMedia=[],selectedIndices=new Set();let currentViewerIndex=0x0;const shutterBtn=document[_0x328feb(0x1b3)](_0x328feb(0x14b)),galleryThumbnailBtn=document['getElementById'](_0x328feb(0x16d)),galleryThumbImg=document[_0x328feb(0x1b3)](_0x328feb(0x1a6)),captureFlash=document['getElementById'](_0x328feb(0x115)),freezeTravelCard=document[_0x328feb(0x1b3)](_0x328feb(0xbc)),mediaViewerModal=document['getElementById'](_0x328feb(0x1db)),closeViewerBtn=document['getElementById'](_0x328feb(0x22c)),deleteCurrentMediaBtn=document[_0x328feb(0x1b3)](_0x328feb(0x23a)),viewerPrevBtn=document[_0x328feb(0x1b3)](_0x328feb(0x202)),viewerNextBtn=document[_0x328feb(0x1b3)](_0x328feb(0xb2)),viewerMediaContainer=document[_0x328feb(0x1b3)](_0x328feb(0x1ca)),mediaCounterTitle=document[_0x328feb(0x1b3)](_0x328feb(0x21a)),shareMediaBtn=document[_0x328feb(0x1b3)]('shareMediaBtn'),shareBtnLabel=document[_0x328feb(0x1b3)](_0x328feb(0x182)),thumbnailStripContainer=document[_0x328feb(0x1b3)]('thumbnailStripContainer');function dataURLtoFile(_0x2038a6,_0xc3f0d2){const _0x52b8aa=_0x328feb,_0x3236c5=_0x2038a6[_0x52b8aa(0xf6)](','),_0x58c647=_0x3236c5[0x0][_0x52b8aa(0x1e9)](/:(.*?);/),_0x3f8b85=_0x58c647?_0x58c647[0x1]:'image/jpeg',_0x2dc56a=atob(_0x3236c5[0x1]);let _0x4c7f60=_0x2dc56a[_0x52b8aa(0x141)];const _0x2c01a3=new Uint8Array(_0x4c7f60);while(_0x4c7f60--){_0x2c01a3[_0x4c7f60]=_0x2dc56a['charCodeAt'](_0x4c7f60);}return new File([_0x2c01a3],_0xc3f0d2,{'type':_0x3f8b85});}const dispararAnimacionCaptura=_0x1d31bf=>{const _0x288cab=_0x328feb;captureFlash[_0x288cab(0x16a)][_0x288cab(0xbf)]=_0x288cab(0x138),setTimeout(()=>{const _0x10598f=_0x288cab;captureFlash[_0x10598f(0x16a)]['opacity']='0';},0x50),freezeTravelCard['style'][_0x288cab(0x154)]=_0x288cab(0x234)+_0x1d31bf+')',freezeTravelCard[_0x288cab(0x16a)][_0x288cab(0x106)]=_0x288cab(0x185),freezeTravelCard[_0x288cab(0x16a)][_0x288cab(0x20a)]=_0x288cab(0x1b8),freezeTravelCard[_0x288cab(0x16a)][_0x288cab(0x147)]=_0x288cab(0x1b8),freezeTravelCard[_0x288cab(0x16a)][_0x288cab(0x1a8)]=_0x288cab(0xc9),freezeTravelCard['style'][_0x288cab(0x12a)]=_0x288cab(0xd8),freezeTravelCard[_0x288cab(0x16a)]['borderRadius']='0px',freezeTravelCard[_0x288cab(0x16a)][_0x288cab(0xbf)]='1',void freezeTravelCard['offsetWidth'],galleryThumbnailBtn['style']['display']='flex';const _0x4b771e=galleryThumbnailBtn['getBoundingClientRect']();requestAnimationFrame(()=>{const _0x559ff7=_0x288cab;freezeTravelCard[_0x559ff7(0x16a)]['transition']='all\x200.38s\x20cubic-bezier(0.2,\x200.9,\x200.3,\x201)',freezeTravelCard[_0x559ff7(0x16a)]['top']=_0x4b771e[_0x559ff7(0x20a)]+'px',freezeTravelCard['style'][_0x559ff7(0x147)]=_0x4b771e['left']+'px',freezeTravelCard[_0x559ff7(0x16a)][_0x559ff7(0x1a8)]=_0x4b771e[_0x559ff7(0x1a8)]+'px',freezeTravelCard[_0x559ff7(0x16a)][_0x559ff7(0x12a)]=_0x4b771e[_0x559ff7(0x12a)]+'px',freezeTravelCard[_0x559ff7(0x16a)][_0x559ff7(0x190)]=_0x559ff7(0x110),freezeTravelCard['style'][_0x559ff7(0xbf)]=_0x559ff7(0x1ba),setTimeout(()=>{const _0x5801ce=_0x559ff7;freezeTravelCard[_0x5801ce(0x16a)]['opacity']='0',galleryThumbImg[_0x5801ce(0xa6)]=_0x1d31bf;},0x17c);});},capturarYGuardarFoto=()=>{const _0xac3c65=_0x328feb,_0x26855b=document[_0xac3c65(0x200)](_0xac3c65(0x233)),_0x576925=_renderer?_renderer[_0xac3c65(0x14a)]:null;if(!_0x26855b||!_0x576925)return;_renderer&&_scene&&_activeCamera&&_renderer[_0xac3c65(0xcc)](_scene,_activeCamera);const _0x255fc0=window[_0xac3c65(0x117)],_0x59e0d9=window[_0xac3c65(0x191)],_0x4b7572=document[_0xac3c65(0xad)](_0xac3c65(0x11d));_0x4b7572[_0xac3c65(0x1a8)]=_0x255fc0,_0x4b7572[_0xac3c65(0x12a)]=_0x59e0d9;const _0x655a6=_0x4b7572['getContext']('2d');_0x655a6[_0xac3c65(0x1b4)](_0x26855b,0x0,0x0,_0x255fc0,_0x59e0d9),_0x655a6[_0xac3c65(0x1b4)](_0x576925,0x0,0x0,_0x255fc0,_0x59e0d9);const _0x17240d=_0x4b7572[_0xac3c65(0xa9)]('image/jpeg',0.85),_0xd40702=_0xac3c65(0x20f)+Date[_0xac3c65(0xce)]()+_0xac3c65(0x218),_0x3ee7bb=sessionCapturedMedia[_0xac3c65(0x141)];sessionCapturedMedia['push']({'url':_0x17240d,'name':_0xd40702}),selectedIndices['add'](_0x3ee7bb),dispararAnimacionCaptura(_0x17240d);const _0x324290=document['createElement']('a');_0x324290[_0xac3c65(0x173)]=_0x17240d,_0x324290['download']=_0xd40702,document[_0xac3c65(0xf0)][_0xac3c65(0x151)](_0x324290),_0x324290[_0xac3c65(0x121)](),document[_0xac3c65(0xf0)][_0xac3c65(0x193)](_0x324290);};shutterBtn[_0x328feb(0x12f)]('click',capturarYGuardarFoto);const renderizarTiraMiniaturas=()=>{const _0xbe9201=_0x328feb;thumbnailStripContainer[_0xbe9201(0x232)]='',sessionCapturedMedia[_0xbe9201(0x10c)]((_0x59c7d8,_0xe5dca)=>{const _0x3e16df=_0xbe9201,_0x27acf6=document[_0x3e16df(0xad)](_0x3e16df(0x161)),_0x17a2a9=_0xe5dca===currentViewerIndex?_0x3e16df(0x118):'',_0x92e720=selectedIndices[_0x3e16df(0x1af)](_0xe5dca)?_0x3e16df(0x158):'';_0x27acf6[_0x3e16df(0x1c5)]=_0x3e16df(0x1ce)+_0x17a2a9+'\x20'+_0x92e720;const _0x4d5890=document[_0x3e16df(0xad)](_0x3e16df(0x160));_0x4d5890[_0x3e16df(0xa6)]=_0x59c7d8['url'],_0x4d5890[_0x3e16df(0x1c5)]=_0x3e16df(0x238),_0x27acf6[_0x3e16df(0x151)](_0x4d5890);const _0x8ff43=document[_0x3e16df(0xad)](_0x3e16df(0x161));_0x8ff43['className']='strip-thumb-check',_0x8ff43[_0x3e16df(0x12f)](_0x3e16df(0x121),_0x3cf009=>{const _0x163722=_0x3e16df;_0x3cf009[_0x163722(0x140)](),selectedIndices[_0x163722(0x1af)](_0xe5dca)?selectedIndices[_0x163722(0x1c3)](_0xe5dca):selectedIndices[_0x163722(0x210)](_0xe5dca),actualizarBotonCompartir(),renderizarTiraMiniaturas();}),_0x27acf6[_0x3e16df(0x151)](_0x8ff43),_0x27acf6['addEventListener'](_0x3e16df(0x121),()=>{currentViewerIndex=_0xe5dca,actualizarContenidoVisor();}),thumbnailStripContainer['appendChild'](_0x27acf6);}),actualizarBotonCompartir();},actualizarBotonCompartir=()=>{const _0x1da2c4=_0x328feb,_0x40a9bf=selectedIndices[_0x1da2c4(0x211)];_0x40a9bf<=0x1?shareBtnLabel[_0x1da2c4(0x198)]=_0x1da2c4(0xe2):shareBtnLabel[_0x1da2c4(0x198)]='Compartir\x20'+_0x40a9bf+_0x1da2c4(0x187);},actualizarContenidoVisor=()=>{const _0x285af1=_0x328feb;if(sessionCapturedMedia[_0x285af1(0x141)]===0x0){cerrarVisorFotos(),galleryThumbnailBtn['style']['display']=_0x285af1(0x185);return;}currentViewerIndex=Math[_0x285af1(0x1c0)](0x0,Math[_0x285af1(0x1f3)](currentViewerIndex,sessionCapturedMedia[_0x285af1(0x141)]-0x1));const _0x177df0=sessionCapturedMedia[currentViewerIndex];mediaCounterTitle[_0x285af1(0x198)]=_0x285af1(0x1c6)+(currentViewerIndex+0x1)+_0x285af1(0x215)+sessionCapturedMedia[_0x285af1(0x141)],viewerMediaContainer[_0x285af1(0x232)]='';const _0x4a8619=document[_0x285af1(0xad)](_0x285af1(0x160));_0x4a8619[_0x285af1(0xa6)]=_0x177df0[_0x285af1(0xd2)],viewerMediaContainer[_0x285af1(0x151)](_0x4a8619),viewerPrevBtn[_0x285af1(0x16a)][_0x285af1(0xd4)]=sessionCapturedMedia[_0x285af1(0x141)]>0x1?_0x285af1(0x1f5):'none',viewerNextBtn['style'][_0x285af1(0xd4)]=sessionCapturedMedia[_0x285af1(0x141)]>0x1?_0x285af1(0x1f5):_0x285af1(0x185),renderizarTiraMiniaturas();},abrirVisorFotos=()=>{const _0x53dab6=_0x328feb;sessionCapturedMedia[_0x53dab6(0x141)]>0x0&&(currentViewerIndex=sessionCapturedMedia[_0x53dab6(0x141)]-0x1,history['pushState']({'modalAbierto':!![]},''),actualizarContenidoVisor(),mediaViewerModal[_0x53dab6(0x16a)][_0x53dab6(0xd4)]=_0x53dab6(0x1f5));},cerrarVisorFotos=()=>{const _0x3e139e=_0x328feb;mediaViewerModal&&mediaViewerModal[_0x3e139e(0x16a)][_0x3e139e(0xd4)]==='flex'&&(history['state']&&history[_0x3e139e(0x148)][_0x3e139e(0xbe)]?history['back']():mediaViewerModal[_0x3e139e(0x16a)][_0x3e139e(0xd4)]='none');};galleryThumbnailBtn['addEventListener'](_0x328feb(0x121),abrirVisorFotos),closeViewerBtn[_0x328feb(0x12f)](_0x328feb(0x121),cerrarVisorFotos),history['pushState']({'inAR':!![]},''),window[_0x328feb(0x12f)](_0x328feb(0x163),_0x2811b4=>{const _0x306ce1=_0x328feb;if(mediaViewerModal&&mediaViewerModal[_0x306ce1(0x16a)][_0x306ce1(0xd4)]===_0x306ce1(0x1f5)){mediaViewerModal[_0x306ce1(0x16a)][_0x306ce1(0xd4)]=_0x306ce1(0x185);return;}if(arCardModal&&arCardModal[_0x306ce1(0x1f7)]['contains'](_0x306ce1(0x166))){cerrarCardAR(),history[_0x306ce1(0x102)]({'inAR':!![]},'');return;}if(isIOS){const _0x354266=document['querySelector']('video');if(_0x354266){try{_0x354266[_0x306ce1(0x1a0)]();}catch(_0x3fd6c3){}if(_0x354266[_0x306ce1(0xde)])try{_0x354266[_0x306ce1(0xde)][_0x306ce1(0x1ed)]()[_0x306ce1(0x10c)](_0x295b42=>_0x295b42['stop']());}catch(_0x180261){}}if(window[_0x306ce1(0xdf)])try{window['XR8']['stop']();}catch(_0x3d71c2){}}sessionStorage[_0x306ce1(0x14c)]('from_ar','1'),sessionStorage['setItem'](_0x306ce1(0x1de),currentDishIndex),window['location'][_0x306ce1(0x170)]('index.html');}),viewerPrevBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>{const _0x1ca75f=_0x328feb;currentViewerIndex=(currentViewerIndex-0x1+sessionCapturedMedia[_0x1ca75f(0x141)])%sessionCapturedMedia['length'],actualizarContenidoVisor();}),viewerNextBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>{const _0x1bcc2b=_0x328feb;currentViewerIndex=(currentViewerIndex+0x1)%sessionCapturedMedia[_0x1bcc2b(0x141)],actualizarContenidoVisor();}),deleteCurrentMediaBtn[_0x328feb(0x12f)](_0x328feb(0x121),()=>{const _0x56dc21=_0x328feb;sessionCapturedMedia[_0x56dc21(0xd7)](currentViewerIndex,0x1),selectedIndices[_0x56dc21(0x1c3)](currentViewerIndex);const _0x5ea066=new Set();selectedIndices[_0x56dc21(0x10c)](_0x25dded=>{const _0xabfcf9=_0x56dc21;if(_0x25dded>currentViewerIndex)_0x5ea066[_0xabfcf9(0x210)](_0x25dded-0x1);else{if(_0x25dded<currentViewerIndex)_0x5ea066['add'](_0x25dded);}}),selectedIndices[_0x56dc21(0x222)](),_0x5ea066[_0x56dc21(0x10c)](_0x45935d=>selectedIndices[_0x56dc21(0x210)](_0x45935d)),sessionCapturedMedia[_0x56dc21(0x141)]===0x0?(cerrarVisorFotos(),galleryThumbnailBtn['style'][_0x56dc21(0xd4)]=_0x56dc21(0x185)):(galleryThumbImg[_0x56dc21(0xa6)]=sessionCapturedMedia[sessionCapturedMedia[_0x56dc21(0x141)]-0x1][_0x56dc21(0xd2)],actualizarContenidoVisor());}),shareMediaBtn[_0x328feb(0x12f)](_0x328feb(0x121),async()=>{const _0x430412=_0x328feb;if(sessionCapturedMedia[_0x430412(0x141)]===0x0)return;const _0xf89c44=selectedIndices['size']>0x0?Array[_0x430412(0xb9)](selectedIndices):[currentViewerIndex];try{const _0x1b3a27=_0xf89c44[_0x430412(0x105)](_0x39dd16=>{const _0x1690bb=_0x430412,_0x33df0f=sessionCapturedMedia[_0x39dd16];return dataURLtoFile(_0x33df0f[_0x1690bb(0xd2)],_0x33df0f[_0x1690bb(0x1e5)]);});navigator[_0x430412(0x13b)]&&navigator[_0x430412(0x13b)]({'files':_0x1b3a27})&&await navigator[_0x430412(0xf1)]({'files':_0x1b3a27});}catch(_0x4800e5){}});
+  </script>
+
+  <script src="bundle-world.js"></script>
+</body>
+</html>
