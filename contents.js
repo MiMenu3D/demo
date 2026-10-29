@@ -1,4 +1,4 @@
-// Versión: 9th_Design v5.14 - Centralized Content & Menu Data
+// Versión: 9th_Design v5.31 - Centralized Content & Menu Data
 window.MENU_CONFIG = {
   // Configuración general del establecimiento
   restaurante: "9th_Design",
@@ -30,7 +30,7 @@ window.MENU_CONFIG = {
     },
     {
       id: "04",
-      nombre: "Burrata italiana",
+      nombre: "Pasta Carbonara",
       precio: "18",
       archivoGLB: "Plato_04.glb",
       descripcion: "Corazón cremoso de burrata de Puglia acompañada de tomates cherry confitados en aceite virgen extra, pesto verde genovés elaborado al mortero, piñones tostados crujientes y una reducción aterciopelada de vinagre balsámico tradicional de Módena."
@@ -44,9 +44,9 @@ window.MENU_CONFIG = {
     },
     {
       id: "06",
-      nombre: "Ensalada Caprese",
+      nombre: "Chicken Roll",
       precio: "18",
-      archivoGLB: "Plato_01.glb",
+      archivoGLB: "Plato_06.glb",
       descripcion: "Láminas intercaladas de tomate corazón de buey de huerta y mozzarella de búfala campana, aderezadas con hojas frescas de albahaca morada, escamas de sal marina ahumada y aceite monovarietal de aceituna arbequina de primera extracción."
     },
     {
