@@ -1,4 +1,4 @@
-// Versión: 9th_Design v5.31 - Centralized Content & Menu Data
+// Versión: 9th_Design v5.32 - Centralized Content & Menu Data
 window.MENU_CONFIG = {
   // Configuración general del establecimiento
   restaurante: "9th_Design",
