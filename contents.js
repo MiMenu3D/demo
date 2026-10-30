@@ -51,9 +51,9 @@ window.MENU_CONFIG = {
     },
     {
       id: "07",
-      nombre: "Pizza especial",
+      nombre: "Pasta Bolognesa",
       precio: "18",
-      archivoGLB: "Plato_02.glb",
+      archivoGLB: "Plato_07.glb",
       descripcion: "Combinación gourmet de higos frescos de temporada, queso gorgonzola dulce, nueces pacanas tostadas y un ligero glaseado de miel de flores silvestres sobre una base blanca y crujiente de fermentación de 48 horas."
     },
     {
