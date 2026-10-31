@@ -58,9 +58,9 @@ window.MENU_CONFIG = {
     },
     {
       id: "08",
-      nombre: "Ensalada César",
+      nombre: "Sushi Ebi Roll",
       precio: "18",
-      archivoGLB: "Plato_03.glb",
+      archivoGLB: "Plato_08.glb",
       descripcion: "Delicada selección de lechugas tiernas combinadas con pechuga asada a baja temperatura, lascas de Parmigiano Reggiano curado 24 meses, crujientes dados de pan artesanal y un aliño tradicional emulsionado suavemente con toques de anchoa del Cantábrico y limón fresco."
     },
     {
