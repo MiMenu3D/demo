@@ -65,9 +65,9 @@ window.MENU_CONFIG = {
     },
     {
       id: "09",
-      nombre: "Pizza Diávola",
+      nombre: "Ensalada Caprese",
       precio: "18",
-      archivoGLB: "Plato_04.glb",
+      archivoGLB: "Plato_09.glb",
       descripcion: "Masa madre de fermentación lenta horneada a la piedra, base de tomate San Marzano DOP, mozzarella fior di latte fundente y una cuidada selección de salame piccante calabrés, terminado con finas láminas de guindilla fresca y un hilo de aceite aromatizado con orégano silvestre."
     },
     {
