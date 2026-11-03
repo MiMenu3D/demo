@@ -37,7 +37,7 @@ window.MENU_CONFIG = {
     },
     {
       id: "05",
-      nombre: "Pizza de la casa",
+      nombre: "Burrata con Pomodorini",
       precio: "18",
       archivoGLB: "Plato_05.glb",
       descripcion: "Nuestra receta insignia con crema de trufa negra, setas silvestres salteadas al vino blanco, queso scamorza ahumado y prosciutto di Parma añadido al final del horneado para preservar todos sus matices aromáticos y textura sedosa."
