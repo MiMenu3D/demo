@@ -72,9 +72,9 @@ window.MENU_CONFIG = {
     },
     {
       id: "10",
-      nombre: "Cheeseburger",
+      nombre: "Burrata_v05",
       precio: "18",
-      archivoGLB: "Plato_05.glb",
+      archivoGLB: "Plato_10.glb",
       descripcion: "Carne 100% de vaca madurada picada al momento, fundida con doble loncha de queso cheddar inglés curado, cebolla caramelizada lentamente, pepinillos encurtidos artesanos y salsa especial de la casa en pan brioche artesanal ligeramente tostado con mantequilla."
     },
     {
