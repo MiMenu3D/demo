@@ -12,7 +12,7 @@ window.MENU_CONFIG = {
       nombre: "Ensalada César",
       precio: "18",
       archivoGLB: "Plato_01.glb",
-      humo: false, // Plato frío: sin humo
+      humo: true, // Plato frío: sin humo
       descripcion: "Delicada selección de lechugas tiernas combinadas con pechuga asada a baja temperatura, lascas de Parmigiano Reggiano curado 24 meses, crujientes dados de pan artesanal y un aliño tradicional emulsionado suavemente con toques de anchoa del Cantábrico y limón fresco. Un clásico atemporal elaborado con técnicas de alta cocina para garantizar una textura envolvente en cada bocado."
     },
     {
@@ -52,7 +52,7 @@ window.MENU_CONFIG = {
       nombre: "Ensalada Caprese",
       precio: "18",
       archivoGLB: "Plato_06.glb",
-      humo: false, // Plato frío: sin humo
+      humo: true, // Plato frío: sin humo
       descripcion: "Láminas intercaladas de tomate corazón de buey de huerta y mozzarella de búfala campana, aderezadas con hojas frescas de albahaca morada, escamas de sal marina ahumada y aceite monovarietal de aceituna arbequina de primera extracción."
     },
     {
@@ -68,7 +68,7 @@ window.MENU_CONFIG = {
       nombre: "Ensalada César",
       precio: "18",
       archivoGLB: "Plato_08.glb",
-      humo: false, // Plato frío: sin humo
+      humo: true, // Plato frío: sin humo
       descripcion: "Delicada selección de lechugas tiernas combinadas con pechuga asada a baja temperatura, lascas de Parmigiano Reggiano curado 24 meses, crujientes dados de pan artesanal y un aliño tradicional emulsionado suavemente con toques de anchoa del Cantábrico y limón fresco."
     },
     {
@@ -108,7 +108,7 @@ window.MENU_CONFIG = {
       nombre: "Ensalada Caprese",
       precio: "18",
       archivoGLB: "Plato_13.glb",
-      humo: false, // Plato frío: sin humo
+      humo: true, // Plato frío: sin humo
       descripcion: "Láminas intercaladas de tomate corazón de buey de huerta y mozzarella de búfala campana, aderezadas con hojas frescas de albahaca morada, escamas de sal marina ahumada y aceite monovarietal de aceituna arbequina de primera extracción."
     },
     {
